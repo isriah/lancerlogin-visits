@@ -296,8 +296,11 @@ function HistoryDialog({ booking, timeZone, teamName, onRestored, onClose }: { b
     if (!detail) return;
     setBusy(true); setNotice(undefined);
     try {
-      await staffRequest(adminVisitsRoutes.bookingRestore(booking.id), { method: "POST", body: { revisionId: entryId, revision: detail.revision } });
-      setNotice({ tone: "success", text: "Restored. The team gets an email with the restored details." });
+      const restored = await staffRequest<StaffBookingDetail>(adminVisitsRoutes.bookingRestore(booking.id), { method: "POST", body: { revisionId: entryId, revision: detail.revision } });
+      // The Worker emails a booked result, and a cancellation only when a booked visit is restored to canceled.
+      const text = restored.status === "booked" ? "Restored. The team gets an email with the restored details."
+        : detail.status === "booked" ? "Restored as canceled. The team gets a cancellation email." : "Restored. The visit stays canceled, so no email is sent.";
+      setNotice({ tone: "success", text });
       setVersion((current) => current + 1);
       await onRestored();
     } catch (caught) { setNotice({ tone: "error", text: failureOf(caught).message }); }
