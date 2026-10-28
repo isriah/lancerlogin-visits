@@ -1,6 +1,6 @@
 [
   {
-    "name": "0001_create_example_module_notes.sql",
-    "sha256": "1cb3e3b32091ae0096d678701d8ba7c2f4811546e4047ff1522841197f3e94d1"
+    "name": "0001_create_visits_tables.sql",
+    "sha256": "8309ac1df03e1e31bc52bdfd23b464653532729c11867d84f156c9b6014ec468"
   }
 ]

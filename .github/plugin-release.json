@@ -1,6 +1,6 @@
 {
-  "repository": "isriah/lancerlogin-plugin-template",
-  "title": "LancerLogin Example Module plugin",
+  "repository": "isriah/lancerlogin-visits",
+  "title": "LancerLogin Guest Visits plugin",
   "core": {
     "repository": "isriah/LancerLogin",
     "tag": "v2.0.0-beta.12",

@@ -1,86 +1,74 @@
-# LancerLogin plugin template
+# LancerLogin Guest Visits plugin
 
-A minimal, working LancerLogin module plugin to start from. It adds an **Example Module** (module ID `example-module`) with:
+Guest Visits lets a team publish when guest teams may visit the shop and lets those teams book. A guest team opens one page, sees the open times for the next eight weeks and which teams are already coming, and books a visit with an arrival and departure time and an email address. The confirmation email links to a page where that team can change or cancel the visit. Staff manage availability and visits in the dashboard, get a Discord message for each booking and a weekly Discord summary of upcoming visits, report on visit history and, when Outreach is installed and an Admin allows it, record visits as Outreach Team support.
 
-- a workspace page at `/example-module` with its own navigation entry, listing notes and adding new ones;
-- a settings page at `/settings/example-module`;
-- one API route family, `/admin/example-module` (`GET` and `POST /admin/example-module/notes`);
-- one forward-only migration that creates the `example_module_notes` table;
-- a backup contribution, so notes are included in portable backups, and cleanup steps for retained-data deletion;
-- unit tests, a Verify workflow that composes the plugin into LancerLogin Core and typechecks and builds it, and the release and nightly workflows the official plugins use.
+This repository is a LancerLogin module plugin (module ID `visits`, table prefix `visits_`). It is opt-in: an installation adds it in **Settings > Modules > Plugins** or in `lancerlogin.modules.json`. See LancerLogin's `docs/MODULE-PLUGINS.md` for how plugins are selected, composed, updated and removed, and `docs/PLUGIN-AUTHORING.md` for how they are written.
 
-LancerLogin composes a plugin into an installation's own build at an exact commit. For how to write plugins, see `docs/PLUGIN-AUTHORING.md` in isriah/LancerLogin (available from the next Modular release), and `docs/MODULE-PLUGINS.md` there for how plugins are selected, composed, updated and removed. The official plugins, [isriah/lancerlogin-outreach](https://github.com/isriah/lancerlogin-outreach) and [isriah/lancerlogin-carpool](https://github.com/isriah/lancerlogin-carpool), are larger examples of the same structure.
+## Status
 
-## Use this template
+The domain rules, schema and tests are in place: availability series and windows, booking validation and fit, manage-link tokens, guest emails and Discord text, the weekly summary schedule, the per-address email cap, the notification queue, backup and cleanup. The guest page (`/visit`), manage page (`/visit/manage`), staff workspace (`/visits`), settings (`/settings/visits`), notification job and report need LancerLogin Core's email service, installation time zone, public sub-pages and cross-plugin calls, and arrive once that Core release is available. Until then the Worker routes and dashboard pages are placeholders.
 
-1. **Create your repository.** Choose **Use this template** on GitHub, or run `gh repo create <owner>/<repository> --template isriah/lancerlogin-plugin-template --private --clone`.
-2. **Rename the module.** Pick a module ID (lowercase letters, digits and hyphens, for example `field-trips`) and a table prefix derived from it (`field_trips_`). Replace, everywhere in the repository:
-   - `example-module` with your module ID, in `package.json` (`lancerlogin.moduleId` and `name`), `src/manifest.ts`, `src/api.ts`, `src/dashboard.tsx` and the route, navigation and settings paths;
-   - `example_module_` with your table prefix, in `package.json` (`lancerlogin.tablePrefix`), `src/manifest.ts`, `src/notes.ts`, `src/api.ts` and the migration;
-   - `Example Module` with your module's title, in `src/manifest.ts`, `src/dashboard.tsx` and the package description.
-   Rename the migration file if you like, then update `migrations/reviewed.json` with its name and SHA-256 (`sha256sum migrations/0001_*.sql`; Core hashes the text with CRLF converted to LF). `npm test` checks that these agree.
-3. **Update `.github/plugin-release.json`.** Set `repository` to your repository (`<owner>/<repository>`) and `title` to your plugin's name, for example `Field Trips plugin`. Release notes must start with that title. Keep `core` pinned to a LancerLogin release: a full commit SHA in `commit` and the release tag in `tag`.
-4. **Run CI.** Push to `main`. **Verify** runs the unit tests, composes the plugin into the pinned Core with Core's official plugins, as an installation build would, and typechecks and builds the result. Fix anything it reports before you release.
-5. **Cut an immutable release.** Enable immutable releases in **Settings > General > Releases**, then follow [Releasing](#releasing). Installations only accept immutable releases.
-6. **Add the plugin to an installation.** In the installation's private deployment repository, add an entry to `lancerlogin.modules.json` with the full commit SHA of your release:
+## What it does
 
-   ```json
-   {
-     "format": 1,
-     "modules": [
-       { "id": "example-module", "source": "https://github.com/<owner>/<repository>.git", "commit": "<full 40-character commit SHA>" }
-     ]
-   }
-   ```
+- **Guest page** at `/visit`, no sign-in: open windows for the next eight weeks with their titles, the teams coming and their arrival and departure times, and canceled windows with their reason. Booking takes team number, team name, program (FRC, FTC, FIRST LEGO League Challenge, FIRST LEGO League Explore or Other), contact name, contact email, optional phone, arrival, departure, headcount and an optional note. Anyone with the page URL sees team number, name, program, times and headcount; contact details and notes are for staff only.
+- **Manage page** at `/visit/manage#<token>`, reached only from the confirmation email: change the date, times, headcount, note, contact name and phone, or cancel. Opening the link changes nothing. Every change sends an update email with a fresh link. Each link works until the visit ends; staff correcting the email address revokes the earlier links.
+- **Staff workspace** at `/visits` for Admins and assigned Operators (capability `visits.manage`): repeating and one-off availability windows that never overlap, cancel and restore with a reason, edit or remove visits and restore earlier versions from history, resend confirmations, Needs attention, and guest teams.
+- **Notifications**: emails through Core's email service with at most ten Guest Visits emails per address per day, Discord messages for bookings, changes and cancellations, and a weekly summary (default Monday 12:00 in the installation time zone).
+- **Outreach link** (optional): once an Admin grants Guest Visits access to Outreach, each booked visit is recorded as Outreach Team support on its date.
 
-   Pins are always full commit SHAs; tags and branches are refused. From a LancerLogin Core checkout, `npm run plugins:resolve -- --selection path/to/lancerlogin.modules.json --track stable --module example-module` writes the commit of the newest stable release into the selection. A private plugin repository also needs `LANCERLOGIN_PLUGIN_TOKEN` in the deployment repository, with read access to the plugin repository. The next installation build or web update composes the plugin, and an Administrator then enables it.
+Times are stored as instants and entered in the installation time zone. On days when clocks change, a skipped local time becomes the moment the clock jumps to, and a repeated local time takes its earlier occurrence for starts and its later occurrence for ends (see `src/shared/visits-time.ts`).
+
+## Compatibility
+
+| Plugin | LancerLogin Core | Module contract |
+| --- | --- | --- |
+| 0.1.x | To be set to the first Core release with the email service, installation time zone, public sub-pages and cross-plugin calls (module SDK 1.1.0) | 1 |
+
+The supported Core range is the `lancerlogin.core` field in `package.json`. Composition refuses the plugin for a Core outside that range, before an installation build or web update starts. React and `@lancerlogin/module-sdk` are peer dependencies provided by Core.
 
 ## Layout
 
 | Path | Purpose |
 | --- | --- |
 | `package.json` | Package name, version, `lancerlogin` plugin declaration (module ID, contract, supported Core range, table prefix, entries, migrations) and peer dependencies |
-| `package-lock.json`, `.npmrc` | Lockfile. Peer dependencies are provided by Core and never installed here. If the plugin gains runtime `dependencies`, Core installs them from this lockfile with install scripts disabled |
-| `src/manifest.ts` | Module definition: navigation, settings, capabilities, API routes, tables, backup and cleanup declarations |
-| `src/api.ts` | Worker contribution: route handlers, setup, cleanup and backup |
+| `package-lock.json`, `.npmrc` | Lockfile. Peer dependencies are provided by Core and never installed here. The plugin has no runtime dependencies |
+| `src/manifest.ts` | Module definition: navigation, settings, capability, API routes, tables, backup and cleanup declarations |
+| `src/api.ts` | Worker contribution: route handlers, setup, cleanup, first-enable defaults and backup |
 | `src/dashboard.tsx` | Dashboard contribution: workspace and settings pages |
-| `src/notes.ts` | Note rules and queries, shared by the API and the unit tests |
-| `migrations/` | Forward-only SQL migrations numbered from `0001`, and `reviewed.json` with each file's SHA-256 |
-| `tests/` | Unit tests (`npm test`) |
+| `src/shared/visits-time.ts` | Civil-time adapter type, local dates and times, the daylight saving policy and plain formatting |
+| `src/shared/visits-schedule.ts` | Repeating series, one-off windows, overlap and which windows a series edit replaces |
+| `src/shared/visits-booking.ts` | Booking and manage-page validation, window fit, the public projection, change history and Needs attention |
+| `src/shared/visits-tokens.ts` | Manage-link tokens: generation, hashing, links and acceptance |
+| `src/shared/visits-text.ts` | HTML and Discord escaping, guest emails and Discord messages |
+| `src/shared/visits-summary.ts` | Weekly summary timing, selection and formatting |
+| `src/shared/visits-limits.ts` | Per-address daily email cap |
+| `src/shared/visits-notifications.ts` | Notification queue: kinds, retries, leases and Discord nonces |
+| `src/shared/visits-storage.ts` | Portable and non-portable tables, backup columns, cleanup steps and restore handling |
+| `migrations/` | `0001_create_visits_tables.sql` and `reviewed.json` with its SHA-256 |
+| `tests/` | Unit and SQL tests (`npm test`), with an Intl stand-in for the SDK's civil-time helpers and a D1-shaped adapter over Node's built-in SQLite in `tests/helpers/` |
 | `scripts/verify-with-core.mjs` | Composes this commit into a Core checkout, then typechecks and builds it |
 | `scripts/plugin-release.mjs`, `scripts/release-policy.mjs` | Release, nightly and version rules, the same as the official plugins |
 | `.github/plugin-release.json` | Repository, release title and pinned Core |
 
-Rules Core enforces when it composes the plugin: plugin code imports only `@lancerlogin/module-sdk`, React and its own declared dependencies, never Core source; every table, index and trigger starts with the table prefix; API routes live under `/admin/<module ID>`, `/public/<module ID>` or `/module-setup/<module ID>`; every table is either backed up or declared non-portable; migrations are never edited once released.
+Files in `src/shared` import only each other, never the module SDK or `node:` built-ins, so `npm test` runs without a Core checkout. Time-zone code receives the SDK's civil-time helpers as an argument (`CivilTime` in `src/shared/visits-time.ts`); the Worker and dashboard pass `{ resolveCivilTime, instantToCivil }` from `@lancerlogin/module-sdk`.
 
-## Compatibility
+Rules Core enforces when it composes the plugin: plugin code imports only `@lancerlogin/module-sdk`, React and its own declared dependencies, never Core source; every table, index and trigger starts with the table prefix; API routes live under `/admin/visits`, `/public/visits` or `/module-setup/visits`; every table is either backed up or declared non-portable; migrations are never edited once released.
 
-| Plugin | LancerLogin Core | Module contract |
-| --- | --- | --- |
-| 0.1.x | `>=2.0.0-beta.12 <3.0.0` (Modular 2.0.0-beta.12 and later 2.x releases) | 1 |
+## Tests
 
-The supported Core range is the `lancerlogin.core` field in `package.json`. Composition refuses the plugin for a Core outside that range, before an installation build or web update starts. React and `@lancerlogin/module-sdk` are peer dependencies provided by Core.
+`npm test` runs on Node 24 with no installed packages:
+
+- logic tests for every `src/shared` module, including daylight saving transitions in America/New_York on 2026-03-08 and 2026-11-01;
+- SQL tests that apply the migrations to an in-memory `node:sqlite` database through a small D1-shaped adapter: constraints, overlap and revision triggers, uniqueness, cascades, the email cap, notification leases, cleanup order, a backup round trip and the indexes the Worker's queries use;
+- the package check that the manifest, `package.json`, the storage declarations and `migrations/reviewed.json` agree, and the release policy tests.
 
 ## Continuous integration
 
-**Verify** (`.github/workflows/ci.yml`) runs on every push to `main`, every pull request and on demand. It runs the unit tests, checks out the LancerLogin Core commit pinned in `.github/plugin-release.json` from the public [isriah/LancerLogin](https://github.com/isriah/LancerLogin) repository (currently Modular `v2.0.0-beta.12`, pinned by its full commit SHA; the tag is recorded beside it for people), composes this plugin commit into it with Core's official plugins and typechecks and builds the composed Worker and dashboard.
+**Verify** (`.github/workflows/ci.yml`) runs on every push to `main`, every pull request and on demand. It runs the unit tests, checks out the LancerLogin Core commit pinned in `.github/plugin-release.json` from the public [isriah/LancerLogin](https://github.com/isriah/LancerLogin) repository, composes this plugin commit into it with Core's official plugins and typechecks and builds the composed Worker and dashboard. Once the routes and pages use Core's email service, time zone, public sub-pages and cross-plugin calls, Verify passes only against a pinned Core release that includes them.
 
 No repository secrets are needed. Two optional secrets are used only when set, for a Core pin that is private: `LANCERLOGIN_CORE_TOKEN` (Contents: read on that Core repository) and `LANCERLOGIN_PLUGIN_TOKEN` (read access to private plugin repositories that Core composes).
 
-To test against a newer Core release, update `core.commit` (the full commit SHA of the release tag) and `core.tag` in `.github/plugin-release.json` in its own pull request.
-
-Run the same checks locally from a clean commit with a Core checkout beside it:
-
-```sh
-git clone https://github.com/isriah/LancerLogin.git ../LancerLogin
-git -C ../LancerLogin checkout f0b98331f7b0c3f1bce9033e42bbd62d3f8ca9d9
-(cd ../LancerLogin && npm ci)
-npm test
-npm run verify:core -- ../LancerLogin              # compose, typecheck and build
-npm run verify:core -- ../LancerLogin --mode fast  # compose and typecheck only
-```
-
-Verification restores Core's generated files afterwards, so the Core checkout stays clean.
+Run the same checks locally from a clean commit with a Core checkout beside it at the pinned commit (`npm ci` done there): `npm test`, then `npm run verify:core -- ../LancerLogin` (add `--mode fast` to compose and typecheck only). Verification restores Core's generated files afterwards, so the Core checkout stays clean.
 
 ## Releasing
 
@@ -92,15 +80,15 @@ Releases follow LancerLogin's rules. The highest version wins, never the most re
 | Beta | `vX.Y.Z-beta.N`, GitHub prerelease | Beta and Nightly | Installations that opted in to early releases |
 | Nightly | `vX.Y.Z-nightly.YYYYMMDD`, GitHub prerelease | Nightly only | **Test installations only** |
 
-1. On `main`, set `package.json` `version`, add `docs/releases/vX.Y.Z.md` (title `# <title from plugin-release.json> vX.Y.Z`, a short summary, then **Bugs fixed**, **Features added** and **Features removed**, writing `None.` for an empty section) and a `## [X.Y.Z] - YYYY-MM-DD` entry in `CHANGELOG.md`. Commit them as `Release vX.Y.Z`.
+1. On `main`, set `package.json` `version`, add `docs/releases/vX.Y.Z.md` (title `# LancerLogin Guest Visits plugin vX.Y.Z`, a short summary, then **Bugs fixed**, **Features added** and **Features removed**, writing `None.` for an empty section) and a `## [X.Y.Z] - YYYY-MM-DD` entry in `CHANGELOG.md`. Commit them as `Release vX.Y.Z`.
 2. Wait for **Verify** to pass for that exact commit on `main`.
 3. Tag the commit and push the tag: `git tag vX.Y.Z <commit>` and `git push origin vX.Y.Z`.
 4. **Release plugin** (`.github/workflows/release.yml`) checks the version, notes, changelog and release commit, requires the successful Verify run for that exact commit, and prepares a draft release with the patch notes.
-5. Publish from a checkout of the repository with your GitHub CLI login: `node scripts/plugin-release.mjs publish vX.Y.Z` to check, then `node scripts/plugin-release.mjs publish vX.Y.Z --publish`. Publication requires immutable releases, rechecks the tag, commit, Verify run and notes, publishes beta releases as prereleases, and makes a stable release Latest only when it is higher than the current Latest.
+5. Publish from a checkout of the repository with your GitHub CLI login: `node scripts/plugin-release.mjs publish vX.Y.Z` to check, then `node scripts/plugin-release.mjs publish vX.Y.Z --publish`.
 6. Installations adopt the release by updating their pin, for example with `npm run plugins:resolve`.
 
-**Nightly plugin build** (`.github/workflows/nightly.yml`) runs daily and on demand from `main`. It publishes `vX.Y.Z-nightly.YYYYMMDD` only when `main` has commits that are not in any release and Verify passed for that exact commit. Nightly builds never become Latest and are never offered to the Stable or Beta tracks. The release and nightly workflows do nothing in the template repository itself; they run in repositories created from it.
+**Nightly plugin build** (`.github/workflows/nightly.yml`) runs daily and on demand from `main`. It publishes `vX.Y.Z-nightly.YYYYMMDD` only when `main` has commits that are not in any release and Verify passed for that exact commit. Nightly builds never become Latest and are never offered to the Stable or Beta tracks.
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE). Add your own copyright notice when you publish your plugin.
+Apache-2.0. See [LICENSE](LICENSE).
