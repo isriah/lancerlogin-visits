@@ -47,7 +47,7 @@ export function emailState(status: string | null, error: string | null): EmailSt
 export function staffBooking(civil: CivilTime, timeZone: string, row: StaffBookingRow): StaffBooking {
   return {
     ...localTimes(civil, timeZone, row.arrival_ms, row.departure_ms),
-    id: row.id, revision: row.revision, status: row.status,
+    id: row.id, revision: row.revision, status: row.status, removed: row.removed === 1,
     team: { id: row.team_id, number: row.team_number, name: row.team_name, program: row.team_program },
     windowId: row.window_id, windowTitle: row.window_title, headcount: row.headcount, note: row.note,
     contactName: row.contact_name, contactEmail: row.contact_email, contactPhone: row.contact_phone,
@@ -57,15 +57,18 @@ export function staffBooking(civil: CivilTime, timeZone: string, row: StaffBooki
   };
 }
 
-export type BookingScope = "upcoming" | "past" | "attention";
+export const bookingScopes = ["upcoming", "past", "removed", "attention"] as const;
+export type BookingScope = (typeof bookingScopes)[number];
 
-/** Staff booking lists. Removed visits are never listed. */
+/** Staff booking lists. Removed visits are listed only under `removed`, most recent visit first. */
 export async function listStaffBookings(db: D1Database, civil: CivilTime, timeZone: string, scope: BookingScope, now: number): Promise<StaffBooking[]> {
   const statement = scope === "upcoming"
     ? db.prepare(`${staffBookingSelect} WHERE b.installation_id=? AND b.removed=0 AND b.departure_ms>? ORDER BY b.arrival_ms,b.departure_ms,b.id LIMIT 500`).bind(installationId, now)
     : scope === "past"
       ? db.prepare(`${staffBookingSelect} WHERE b.installation_id=? AND b.removed=0 AND b.departure_ms<=? ORDER BY b.arrival_ms DESC,b.id LIMIT 500`).bind(installationId, now)
-      : db.prepare(`SELECT * FROM (${staffBookingSelect} WHERE b.installation_id=? AND b.removed=0) WHERE ${attentionPredicate} ORDER BY arrival_ms,id LIMIT 500`).bind(installationId);
+      : scope === "removed"
+        ? db.prepare(`${staffBookingSelect} WHERE b.installation_id=? AND b.removed=1 ORDER BY b.arrival_ms DESC,b.id LIMIT 500`).bind(installationId)
+        : db.prepare(`SELECT * FROM (${staffBookingSelect} WHERE b.installation_id=? AND b.removed=0) WHERE ${attentionPredicate} ORDER BY arrival_ms,id LIMIT 500`).bind(installationId);
   return (await rows<StaffBookingRow>(statement)).map((row) => staffBooking(civil, timeZone, row));
 }
 

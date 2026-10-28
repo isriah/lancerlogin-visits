@@ -48,7 +48,10 @@ export const adminVisitsRoutes = {
   windowCancel: (id: string) => `/admin/visits/windows/${encodeURIComponent(id)}/cancel`,
   /** POST `{ revision }`. */
   windowRestore: (id: string) => `/admin/visits/windows/${encodeURIComponent(id)}/restore`,
-  /** GET `?scope=upcoming|past|attention`: `StaffBooking[]`. */
+  /**
+   * GET `?scope=upcoming|past|removed|attention`: `StaffBooking[]`. Removed visits are listed only under `removed`, most
+   * recent visit first, so staff can open their history and restore them.
+   */
   bookings: "/admin/visits/bookings",
   /** GET: `StaffBookingDetail`. PUT `StaffBookingEdit`. DELETE `?revision=`: remove the visit (kept in history, hidden from lists). */
   booking: (id: string) => `/admin/visits/bookings/${encodeURIComponent(id)}`,
@@ -165,6 +168,8 @@ export type StaffBooking = LocalVisitTimes & {
   readonly id: string;
   readonly revision: number;
   readonly status: "booked" | "canceled";
+  /** Removed by staff: canceled without an email and hidden from every list but `removed`. Restore it from its history. */
+  readonly removed: boolean;
   readonly team: TeamIdentity & { readonly id: string };
   readonly windowId: string;
   readonly windowTitle: string;

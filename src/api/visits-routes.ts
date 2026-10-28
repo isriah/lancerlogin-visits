@@ -8,7 +8,7 @@ import {
   bookVisit, listTeams, lookupTeam, manageCancel, manageShow, manageUpdate, mergeTeam, publicCalendar, recordOutreach, staffCancel, staffEdit, staffHandled, staffRemove,
   staffRestore, staffResend, updateTeam,
 } from "./visits-bookings.ts";
-import { listStaffBookings, staffBookingDetail, type BookingScope } from "./visits-queries.ts";
+import { bookingScopes, listStaffBookings, staffBookingDetail, type BookingScope } from "./visits-queries.ts";
 import { readSettings, sendTestEmail, setupStatus, updateSettings, visitsSettings, visitsStatus } from "./visits-settings.ts";
 import { ok, pathId, readBody, respondTo, revisionOf, VisitsError, type RouteResult, type VisitsDeps, type VisitsRole, type VisitsRouteContext } from "./visits-runtime.ts";
 
@@ -70,8 +70,6 @@ export function visitsPublicRoute(context: VisitsRouteContext, deps: VisitsDeps)
 
 // Workspace routes.
 
-const bookingScopes: readonly BookingScope[] = ["upcoming", "past", "attention"];
-
 function adminRoute(db: VisitsRouteContext["db"], deps: VisitsDeps, path: string): Route | undefined {
   if (!path.startsWith("/admin/visits/")) return undefined;
   const segments = path.slice("/admin/visits/".length).split("/");
@@ -87,7 +85,7 @@ function adminRoute(db: VisitsRouteContext["db"], deps: VisitsDeps, path: string
         roles: staff, methods: {
           GET: async ({ url }) => {
             const scope = (url.searchParams.get("scope") ?? "upcoming") as BookingScope;
-            if (!bookingScopes.includes(scope)) throw new VisitsError(400, "Choose upcoming, past or attention", "scope");
+            if (!bookingScopes.includes(scope)) throw new VisitsError(400, "Choose upcoming, past, removed or attention", "scope");
             return ok(await listStaffBookings(db, deps.civil, await timeZone(), scope, deps.now()));
           },
         },

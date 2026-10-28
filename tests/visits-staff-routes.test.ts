@@ -153,6 +153,10 @@ test("staff cancel, remove and restore visits from their history; removed visits
   assert.deepEqual((await harness.call("DELETE", `/admin/visits/bookings/${booked.id}?revision=3`)).body, { removed: true, id: booked.id });
   assert.equal(harness.email.sent.length, sentBefore);
   for (const scope of ["upcoming", "past", "attention"]) assert.equal((await harness.call("GET", `/admin/visits/bookings?scope=${scope}`)).body.length, 0, scope);
+  // Only the Removed list shows it, marked removed, so staff can open its history and restore it.
+  const removedList = (await harness.call("GET", "/admin/visits/bookings?scope=removed")).body;
+  assert.deepEqual(removedList.map((item: { id: string; removed: boolean; status: string }) => [item.id, item.removed, item.status]), [[booked.id, true, "canceled"]]);
+  assert.equal((await harness.call("GET", "/admin/visits/bookings?scope=deleted")).status, 400);
   assert.equal((await harness.call("GET", "/admin/visits/overview")).body.bookings.length, 0);
   const calendar = (await harness.call("GET", "/public/visits/calendar", { role: null })).body;
   assert.equal(calendar.windows[0].teamCount, 0);
@@ -164,7 +168,8 @@ test("staff cancel, remove and restore visits from their history; removed visits
   assert.deepEqual(removedDetail.history.map((entry: { action: string }) => entry.action), ["removed", "restored", "canceled", "updated", "created"]);
   // Restoring brings it back everywhere.
   await harness.call("POST", `/admin/visits/bookings/${booked.id}/restore`, { body: { revisionId: 3, revision: 4 } });
-  assert.equal((await harness.call("GET", "/admin/visits/bookings?scope=upcoming")).body.length, 1);
+  assert.deepEqual((await harness.call("GET", "/admin/visits/bookings?scope=upcoming")).body.map((item: { removed: boolean }) => item.removed), [false]);
+  assert.equal((await harness.call("GET", "/admin/visits/bookings?scope=removed")).body.length, 0);
   assert.equal((await harness.call("POST", "/public/visits/manage", { body: { token }, role: null })).status, 200);
   assert.equal((await harness.call("POST", `/admin/visits/bookings/${booked.id}/restore`, { body: { revisionId: 99, revision: 5 } })).status, 404);
 });
