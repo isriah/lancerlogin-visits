@@ -2,12 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { at, newYork } from "./helpers/civil-time.ts";
 import {
-  attentionNotes, bookingBadges, canMarkHandled, describeChange, emailStateBadges, historyActionText, historyActorText, historyNewestFirst, mergeTargets,
-  outreachBadge, programChoices, sortBookings, sortTeams, teamText,
+  attentionNotes, bookingBadges, canMarkHandled, canRecordInOutreach, describeChange, emailStateBadges, historyActionText, historyActorText, historyNewestFirst,
+  mergeTargets, outreachBadge, outreachRecordSummary, outreachResultText, programChoices, sortBookings, sortTeams, teamText,
 } from "../src/dashboard/visits-labels.ts";
 import type { BookingHistoryEntry, StaffBooking, StaffTeam } from "../src/shared/visits-api.ts";
 
-const base: Pick<StaffBooking, "status" | "attention" | "email" | "outreach"> = { status: "booked", attention: { state: "none", reason: null }, email: "sent", outreach: null };
+const base: Pick<StaffBooking, "status" | "removed" | "attention" | "email" | "outreach"> & { team: Pick<StaffBooking["team"], "program"> } = {
+  status: "booked", removed: false, attention: { state: "none", reason: null }, email: "sent", outreach: null, team: { program: "FRC" },
+};
 
 test("teams and programs read the way guests write them", () => {
   assert.equal(teamText({ number: "321", name: "Lancers", program: "FRC" }), "FRC 321 Lancers");
@@ -16,12 +18,17 @@ test("teams and programs read the way guests write them", () => {
   assert.deepEqual(programChoices.map((choice) => choice.label), ["FRC", "FTC", "FIRST LEGO League Challenge", "FIRST LEGO League Explore", "Other"]);
 });
 
-test("visit badges show cancellation, attention, email and, when Outreach is available, its record", () => {
+test("visit badges show removal or cancellation, attention, email and the visit's Outreach state", () => {
   assert.deepEqual(bookingBadges(base, false), [{ label: "Email sent", tone: "success" }]);
   assert.deepEqual(bookingBadges({ ...base, status: "canceled", attention: { state: "needed", reason: "outreach-activity-kept" }, email: "capped", outreach: { state: "recorded", activityId: "a1" } }, true).map((badge) => badge.label), [
     "Canceled", "Needs attention", "Email waiting: daily limit", "Recorded in Outreach",
   ]);
-  assert.deepEqual(bookingBadges({ ...base, outreach: { state: "failed", activityId: null } }, false).map((badge) => badge.label), ["Email sent"], "Outreach states stay hidden without Outreach");
+  assert.deepEqual(bookingBadges({ ...base, status: "canceled", removed: true }, true).map((badge) => badge.label), ["Removed", "Email sent"]);
+  // A known Outreach state always shows; "not yet" shows only while Outreach can be used, for visits it could record.
+  assert.deepEqual(bookingBadges({ ...base, outreach: { state: "failed", activityId: null } }, false).map((badge) => badge.label), ["Email sent", "Outreach record failed"]);
+  assert.deepEqual(bookingBadges(base, true).map((badge) => badge.label), ["Email sent", "Not in Outreach yet"]);
+  assert.deepEqual(bookingBadges({ ...base, team: { program: "Other" } }, true).map((badge) => badge.label), ["Email sent"]);
+  assert.deepEqual(bookingBadges({ ...base, status: "canceled" }, true).map((badge) => badge.label), ["Canceled", "Email sent"]);
   assert.equal(bookingBadges({ ...base, attention: { state: "handled", reason: "window-canceled" } }, false)[0]!.label, "Handled");
   assert.equal(emailStateBadges.failed.tone, "error");
   assert.equal(outreachBadge(null), null);
@@ -34,7 +41,7 @@ test("Needs attention explains every reason and offers Mark handled only for att
   assert.equal(notes.length, 3);
   assert.match(notes[0]!, /window was canceled/);
   assert.match(notes[1]!, /email to the team failed/);
-  assert.match(notes[2]!, /Outreach failed: Outreach is disabled/);
+  assert.match(notes[2]!, /Outreach failed: Outreach is disabled\. Use Record in Outreach to try again/);
   assert.match(attentionNotes({ ...base, email: "capped" })[0]!, /daily limit/);
   assert.equal(attentionNotes({ ...base, attention: { state: "handled", reason: "window-removed" } }).length, 0, "a handled reason is not repeated");
   assert.equal(canMarkHandled({ attention: { state: "needed", reason: "window-changed" } }), true);
@@ -71,9 +78,44 @@ test("guest teams sort by program then number, and merge only into active teams 
   assert.deepEqual(mergeTargets(teams, teams[0]!), []);
 });
 
-test("upcoming visits list soonest first and past visits most recent first", () => {
+test("upcoming visits list soonest first and past and removed visits most recent first", () => {
   const visit = (id: string, arrivalMs: number) => ({ id, arrivalMs, departureMs: arrivalMs + 1 });
   const visits = [visit("b", 2), visit("a", 1), visit("c", 3)];
   assert.deepEqual(sortBookings(visits, "upcoming").map((item) => item.id), ["a", "b", "c"]);
   assert.deepEqual(sortBookings(visits, "past").map((item) => item.id), ["c", "b", "a"]);
+  assert.deepEqual(sortBookings(visits, "removed").map((item) => item.id), ["c", "b", "a"]);
+});
+
+test("Record in Outreach shows whenever Outreach can be used, for booked visits it has not recorded", () => {
+  const userAccess = { available: true, granted: false };
+  const granted = { available: true, granted: true };
+  assert.equal(canRecordInOutreach(base, { available: false, granted: false }), false);
+  assert.equal(canRecordInOutreach(base, userAccess), true, "staff may use their own Outreach access without a grant");
+  assert.equal(canRecordInOutreach(base, granted), true);
+  assert.equal(canRecordInOutreach({ ...base, outreach: { state: "recorded", activityId: "a1" } }, userAccess), false);
+  assert.equal(canRecordInOutreach({ ...base, outreach: { state: "failed", activityId: null, error: "Refused" } }, granted), true);
+  // A waiting record is the job's while a grant lets it run; without one, staff record it themselves.
+  assert.equal(canRecordInOutreach({ ...base, outreach: { state: "pending", activityId: null } }, granted), false);
+  assert.equal(canRecordInOutreach({ ...base, outreach: { state: "pending", activityId: null } }, userAccess), true);
+  assert.equal(canRecordInOutreach({ ...base, status: "canceled" }, granted), false);
+  assert.equal(canRecordInOutreach({ ...base, status: "canceled", removed: true }, granted), false);
+  assert.equal(canRecordInOutreach({ ...base, team: { program: "Other" } }, granted), false);
+});
+
+test("Record in Outreach results read per visit and sum up with the visits that need a look", () => {
+  assert.equal(outreachResultText({ state: "recorded" }), "Recorded in Outreach as Team Support.");
+  assert.equal(outreachResultText({ state: "pending" }), "Waiting: Guest Visits records it on its next notification pass.");
+  assert.equal(outreachResultText({ state: "failed", error: "Supported team is archived" }), "Outreach did not record it: Supported team is archived");
+  assert.equal(outreachResultText({ state: "skipped", error: "Canceled visits are not recorded in Outreach" }), "Not recorded: Canceled visits are not recorded in Outreach");
+  const names: Record<string, string> = { b1: "FRC 1234 Gearheads", b2: "FTC 8 Eights", b3: "Team X1 Scouts", b4: "FRC 99 Nines" };
+  const nameOf = (id: string) => names[id];
+  assert.deepEqual(outreachRecordSummary([{ bookingId: "b1", state: "recorded", activityId: "a1" }], nameOf), { tone: "success", text: "FRC 1234 Gearheads is recorded in Outreach as Team Support." });
+  assert.deepEqual(outreachRecordSummary([
+    { bookingId: "b1", state: "recorded", activityId: "a1" }, { bookingId: "b2", state: "recorded", activityId: "a2" }, { bookingId: "b4", state: "pending", activityId: null },
+    { bookingId: "b3", state: "skipped", activityId: null, error: "Outreach does not support teams with program Other" },
+  ], nameOf), { tone: "warning", text: "Recorded 2 visits in Outreach as Team Support. 1 visit waits for the next notification pass. Not recorded: Team X1 Scouts (Outreach does not support teams with program Other)." });
+  assert.deepEqual(outreachRecordSummary([{ bookingId: "b2", state: "failed", activityId: null, error: "Refused (409)" }, { bookingId: "gone", state: "skipped", activityId: null }], nameOf), {
+    tone: "error", text: "Outreach did not record 1 visit: FTC 8 Eights (Refused (409)). Not recorded: A visit.",
+  });
+  assert.deepEqual(outreachRecordSummary([], nameOf), { tone: "neutral", text: "Nothing was recorded." });
 });

@@ -1,7 +1,7 @@
 // The staff workspace at /visits, for Admins and the Operators assigned Guest Visits: Availability, Visits, Needs
 // attention and Guest teams, chosen with ?section= like Core's sectioned pages, under status banners for email, Discord
 // and failed notifications.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { SettingsSectionNavigation, settingsSectionHref, usePath, type DashboardRole } from "@lancerlogin/module-sdk/dashboard";
 import { adminVisitsRoutes, type VisitsStatus } from "../shared/visits-api.ts";
 import { AvailabilitySection } from "./visits-availability";
@@ -48,15 +48,24 @@ export function VisitsWorkspace({ role }: { role: DashboardRole }) {
   </section>;
 }
 
-/** Problems staff should know about before anything else: email not ready, Discord on but unavailable, failed sends. */
+/** Where Admins grant Guest Visits access to Outreach: Settings > Modules > Module access. */
+const moduleAccessPath = "/settings/modules";
+
+/**
+ * Problems staff should know about before anything else: email not ready, Discord on but unavailable, failed sends. On
+ * the Visits section, Admins also learn how to let Guest Visits record visits in Outreach on its own.
+ */
 function StatusBanners({ status, role, section, attentionHref, navigate }: { status: VisitsStatus; role: DashboardRole; section: Section; attentionHref: string; navigate: (path: string) => void }) {
   const failed = status.failedNotifications;
-  const banners = [
+  const banners: { key: string; tone: string; text: ReactNode }[] = [
     !status.email.ready && { key: "email", tone: "warning", text: `Confirmation emails are waiting: Core's Resend connection is not ready. Bookings still save, and their emails send once it is ready.${role === "admin" ? " Check Settings > Integrations." : " Ask an Admin to check Settings > Integrations."}` },
     status.discord.enabled && !status.discord.ready && { key: "discord", tone: "warning", text: "Guest Visits Discord messages are on, but Core's Discord connection is not ready, so no Discord messages are queued." },
     failed > 0 && { key: "failed", tone: "error", text: `${failed} ${failed === 1 ? "message" : "messages"} failed to send. Guest Visits retries every five minutes; visits whose email failed are in Needs attention.` },
-    status.outreach.available && !status.outreach.granted && role === "admin" && section === "visits" && { key: "outreach", tone: "neutral", text: "Outreach is installed. To record visits as Outreach team support, grant Guest Visits access to Outreach in Settings > Modules." },
-  ].filter((banner): banner is { key: string; tone: string; text: string } => Boolean(banner));
+    status.outreach.available && !status.outreach.granted && role === "admin" && section === "visits" && {
+      key: "outreach", tone: "neutral",
+      text: <>Visits are recorded in Outreach only when staff use Record in Outreach. To record every booking automatically, grant Guest Visits access to Outreach in <a href={moduleAccessPath} onClick={inPageLink(navigate, moduleAccessPath)}>Settings &gt; Modules &gt; Module access</a>.</>,
+    },
+  ].filter((banner): banner is { key: string; tone: string; text: ReactNode } => Boolean(banner));
   const attention = status.attentionCount > 0 && section !== "attention";
   if (!banners.length && !attention) return null;
   return <div className="visits-banners">
