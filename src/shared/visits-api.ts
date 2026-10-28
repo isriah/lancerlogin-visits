@@ -60,7 +60,10 @@ export const adminVisitsRoutes = {
   bookingResend: (id: string) => `/admin/visits/bookings/${encodeURIComponent(id)}/resend`,
   /** POST: mark its attention handled. */
   bookingHandled: (id: string) => `/admin/visits/bookings/${encodeURIComponent(id)}/handled`,
-  /** POST `{ bookingIds }`: queue Record in Outreach for these visits. */
+  /**
+   * POST `OutreachRecordRequest`: Record in Outreach. With an Admin's grant, or the staff member's own Outreach access,
+   * records booked visits right away and answers `OutreachRecordResponse`; otherwise 409.
+   */
   recordOutreach: "/admin/visits/outreach",
   /** GET: `StaffTeam[]`. */
   teams: "/admin/visits/teams",
@@ -173,6 +176,20 @@ export type StaffBooking = LocalVisitTimes & {
   readonly createdMs: number;
   readonly updatedMs: number;
 };
+/** At most `maximumOutreachRecordBatch` (50) visits are recorded per request; with a grant the rest are queued for the job. */
+export type OutreachRecordRequest = { readonly bookingIds: readonly string[] };
+/**
+ * One visit's result. recorded: Outreach has its Team Support activity. pending: queued, or retrying after a provider
+ * failure, for the notifications job. failed: Outreach refused it (`error` says why). skipped: not recorded, because the
+ * visit is canceled, removed, missing or of program Other, or was beyond this request's limit without a grant.
+ */
+export type OutreachRecordResult = {
+  readonly bookingId: string;
+  readonly state: "recorded" | "pending" | "failed" | "skipped";
+  readonly activityId: string | null;
+  readonly error?: string;
+};
+export type OutreachRecordResponse = { readonly results: readonly OutreachRecordResult[] };
 export type StaffBookingEdit = ManageEditRequest & { readonly contactEmail?: string; readonly teamId?: string };
 export type BookingHistoryEntry = {
   readonly id: string;
@@ -190,7 +207,11 @@ export type VisitsStatus = {
   readonly guestPagePath: "/visit";
   readonly email: { readonly ready: boolean };
   readonly discord: { readonly ready: boolean; readonly enabled: boolean };
-  /** `available`: Outreach offers the interface. `granted`: Visits may call it on its own. */
+  /**
+   * `available`: Outreach can be used now, through an Admin's grant or the signed-in staff member's own Outreach access.
+   * `granted`: an Admin's grant lets Guest Visits record on its own, so bookings and date changes are recorded
+   * automatically. The notifications job checks the grant every five minutes, so a new grant shows within one pass.
+   */
   readonly outreach: { readonly available: boolean; readonly granted: boolean };
   readonly attentionCount: number;
   readonly failedNotifications: number;

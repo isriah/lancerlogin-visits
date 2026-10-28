@@ -17,6 +17,11 @@ CREATE TABLE visits_settings (
   weekly_summary_time TEXT NOT NULL DEFAULT '12:00' CHECK(weekly_summary_time GLOB '[0-2][0-9]:[0-5][0-9]' AND weekly_summary_time <= '23:59'),
   -- Report times before this instant are never due, so turning the summary on or moving it does not post a past week.
   weekly_summary_since_ms INTEGER NOT NULL CHECK(typeof(weekly_summary_since_ms) = 'integer'),
+  -- Whether an Admin's grant lets Guest Visits record in Outreach on its own, as last seen without a signed-in user (by
+  -- the notifications job or a guest request), and when. Core keeps the grant itself; a restore clears this copy, since
+  -- grants are never restored. Bookkeeping like this leaves the revision alone.
+  outreach_granted INTEGER NOT NULL DEFAULT 0 CHECK(outreach_granted IN (0, 1)),
+  outreach_checked_ms INTEGER CHECK(outreach_checked_ms IS NULL OR typeof(outreach_checked_ms) = 'integer'),
   revision INTEGER NOT NULL DEFAULT 0 CHECK(typeof(revision) = 'integer' AND revision >= 0 AND revision < 9007199254740991),
   updated_at TEXT NOT NULL,
   CHECK(discord_enabled = 0 OR discord_channel_id IS NOT NULL)

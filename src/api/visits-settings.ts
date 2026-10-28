@@ -7,6 +7,7 @@ import { dailyEmailCap, emailAddressHash, emailLimitDay, releaseEmailSql, reserv
 import { escapeHtml } from "../shared/visits-text.ts";
 import { defaultSettingsSql } from "../shared/visits-storage.ts";
 import { isLocalTime, multiLine } from "../shared/visits-time.ts";
+import { outreachAccess } from "./visits-outreach.ts";
 import { attentionCountSql } from "./visits-queries.ts";
 import { installationId, iso, objectBody, ok, onlyFields, revisionOf, stale, VisitsError, type RouteResult, type SettingsRow, type VisitsDeps } from "./visits-runtime.ts";
 
@@ -129,7 +130,11 @@ export async function sendTestEmail(db: D1Database, deps: VisitsDeps, value: unk
   return ok({ sent: true, testEmailSentMs: now });
 }
 
-/** The workspace status: which providers are ready, and how much needs attention. */
+/**
+ * The workspace status: which providers are ready, whether Outreach can be used now (through an Admin's grant or the
+ * staff member's own Outreach access) and whether a grant lets Guest Visits record on its own, and how much needs
+ * attention.
+ */
 export async function visitsStatus(db: D1Database, deps: VisitsDeps): Promise<VisitsStatus> {
   const now = deps.now();
   const [settings, timeZone, emailReady, discordReady, attention, failed] = await Promise.all([
@@ -137,10 +142,10 @@ export async function visitsStatus(db: D1Database, deps: VisitsDeps): Promise<Vi
     db.prepare(attentionCountSql).bind(installationId).first<{ count: number }>(),
     db.prepare("SELECT COUNT(*) AS count FROM visits_notifications WHERE installation_id=? AND status='failed'").bind(installationId).first<{ count: number }>(),
   ]);
+  const outreach = await outreachAccess(db, deps, now);
   return {
     timeZone, guestPagePath: "/visit", email: { ready: emailReady }, discord: { ready: discordReady, enabled: settings.discord_enabled === 1 },
-    // Recording in Outreach arrives in a later version.
-    outreach: { available: false, granted: false },
+    outreach: { available: Boolean(outreach.client) || outreach.granted, granted: outreach.granted },
     attentionCount: Number(attention?.count ?? 0), failedNotifications: Number(failed?.count ?? 0),
   };
 }

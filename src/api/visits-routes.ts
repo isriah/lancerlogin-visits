@@ -5,8 +5,8 @@
 import { publicVisitsRoutes, setupVisitsRoutes } from "../shared/visits-api.ts";
 import { cancelWindow, createSeries, createWindow, listSeries, removeSeries, removeWindow, restoreWindow, staffOverview, updateSeries, updateWindow } from "./visits-availability.ts";
 import {
-  bookVisit, listTeams, lookupTeam, manageCancel, manageShow, manageUpdate, mergeTeam, publicCalendar, staffCancel, staffEdit, staffHandled, staffRemove, staffRestore,
-  staffResend, updateTeam,
+  bookVisit, listTeams, lookupTeam, manageCancel, manageShow, manageUpdate, mergeTeam, publicCalendar, recordOutreach, staffCancel, staffEdit, staffHandled, staffRemove,
+  staffRestore, staffResend, updateTeam,
 } from "./visits-bookings.ts";
 import { listStaffBookings, staffBookingDetail, type BookingScope } from "./visits-queries.ts";
 import { readSettings, sendTestEmail, setupStatus, updateSettings, visitsSettings, visitsStatus } from "./visits-settings.ts";
@@ -92,8 +92,7 @@ function adminRoute(db: VisitsRouteContext["db"], deps: VisitsDeps, path: string
           },
         },
       };
-      // Recording visits in Outreach arrives in a later version, with Core's cross-plugin calls.
-      case "outreach": return { roles: staff, methods: { POST: async () => { throw new VisitsError(409, "Recording in Outreach is not available in this version"); } } };
+      case "outreach": return { roles: staff, methods: { POST: ({ body }) => recordOutreach(db, deps, body) } };
       case "teams": return { roles: staff, methods: { GET: async () => ok(await listTeams(db)) } };
       case "status": return { roles: staff, methods: { GET: async () => ok(await visitsStatus(db, deps)) } };
       case "settings": return { roles: admin, methods: { GET: async () => ok(visitsSettings(await readSettings(db, deps.now()))), PUT: ({ body }) => updateSettings(db, deps, body) } };

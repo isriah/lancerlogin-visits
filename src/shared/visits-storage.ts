@@ -8,7 +8,7 @@ export const moduleId = "visits";
 
 /** Portable tables in parent-first restore order with every column, as backups export them. */
 export const visitsBackupColumns = {
-  visits_settings: ["installation_id", "intro_text", "reply_to", "test_email_sent_at", "discord_enabled", "discord_channel_id", "weekly_summary_enabled", "weekly_summary_weekday", "weekly_summary_time", "weekly_summary_since_ms", "revision", "updated_at"],
+  visits_settings: ["installation_id", "intro_text", "reply_to", "test_email_sent_at", "discord_enabled", "discord_channel_id", "weekly_summary_enabled", "weekly_summary_weekday", "weekly_summary_time", "weekly_summary_since_ms", "outreach_granted", "outreach_checked_ms", "revision", "updated_at"],
   visits_availability_series: ["installation_id", "id", "weekday_mask", "start_time", "end_time", "first_date", "last_date", "title", "revision", "created_at", "updated_at"],
   visits_windows: ["installation_id", "id", "series_id", "start_ms", "end_ms", "title", "status", "cancel_reason", "edited", "revision", "created_at", "updated_at"],
   visits_teams: ["installation_id", "id", "number", "name", "program", "outreach_team_id", "archived", "revision", "created_at", "updated_at"],
@@ -31,8 +31,14 @@ export const visitsTables = [
   "visits_manage_tokens", "visits_public_submission_keys", "visits_email_limits", "visits_notifications",
 ] as const;
 
-/** Columns a restore must neutralize: delivery state and leases, so pending work never revives on its own. */
-export const visitsTransientAuthority = [{ table: "visits_notifications", columns: ["status", "next_attempt_ms", "lease_token", "lease_expires_ms"] }] as const;
+/**
+ * Columns a restore must neutralize: delivery state and leases, so pending work never revives on its own, and the copy of
+ * the Outreach grant, since Core never restores grants.
+ */
+export const visitsTransientAuthority = [
+  { table: "visits_notifications", columns: ["status", "next_attempt_ms", "lease_token", "lease_expires_ms"] },
+  { table: "visits_settings", columns: ["outreach_granted", "outreach_checked_ms"] },
+] as const;
 
 /** The SDK's cleanup step shape. */
 export type VisitsCleanupStep =
@@ -68,8 +74,9 @@ export const visitsCleanupTargets = [
 export const visitsCleanupBlockerSql = "EXISTS(SELECT 1 FROM visits_notifications WHERE installation_id=? AND status='sending' AND lease_expires_ms>(julianday('now')-2440587.5)*86400000)";
 
 /**
- * The default settings row created on first enablement: Discord off, weekly summary Monday 12:00. Binds installation
- * ID, now as epoch milliseconds and now as ISO text. Existing settings are kept.
+ * The default settings row created on first enablement: Discord off, weekly summary Monday 12:00, no Outreach grant seen
+ * yet (the column defaults). Binds installation ID, now as epoch milliseconds and now as ISO text. Existing settings are
+ * kept.
  */
 export const defaultSettingsSql = "INSERT OR IGNORE INTO visits_settings(installation_id,weekly_summary_since_ms,updated_at) VALUES(?,?,?)";
 
@@ -80,12 +87,13 @@ const pausable = (row: Row) => row.status === "pending" || row.status === "sendi
 
 /**
  * Restore handling: queued and in-flight notifications come back paused with no lease, so nothing is sent until staff
- * review it. Other rows are unchanged.
+ * review it, and settings forget the Outreach grant until the job sees a new one. Other rows are unchanged.
  */
 export function neutralizeVisitsBackup(tables: Tables): Tables {
   const notifications = tables.visits_notifications ?? [];
   return {
     ...tables,
+    visits_settings: (tables.visits_settings ?? []).map((row) => ({ ...row, outreach_granted: 0, outreach_checked_ms: null })),
     visits_notifications: notifications.map((row) => pausable(row) ? { ...row, status: "paused", next_attempt_ms: null, lease_token: null, lease_expires_ms: null } : row),
   };
 }
