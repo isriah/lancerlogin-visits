@@ -28,8 +28,10 @@ export function GuestManagePage({ navigate }: { navigate: DashboardNavigate }) {
 
   /** Load the visit. A refresh after a change keeps the current view on screen until the new one arrives. */
   async function open(signal?: { cancelled: boolean }, refresh = false) {
+    // A different link must never show the previous visit's message, even when the new link is invalid.
+    if (!refresh) setNotice(undefined);
     if (!isManageToken(token)) { setLoad({ state: "invalid" }); return; }
-    if (!refresh) { setLoad({ state: "loading" }); setNotice(undefined); }
+    if (!refresh) setLoad({ state: "loading" });
     try {
       const view = await guestRequest<ManageView>(publicVisitsRoutes.manage, { method: "POST", body: { token } });
       if (!signal?.cancelled) setLoad({ state: "ready", view });
@@ -116,7 +118,7 @@ function ManageVisit({ token, view, onNotice: setNotice, onView, onReload }: { t
     setBusy(true); setNotice(undefined); setErrors({});
     try {
       const result = await guestRequest<unknown>(publicVisitsRoutes.manageUpdate, { method: "POST", body: { token, edit } });
-      applyResult(result, `Saved. We emailed the updated details to ${booking.contactEmail}.`);
+      applyResult(result, `Saved. The updated details are on their way to ${booking.contactEmail}.`);
     } catch (error) {
       const failure = failureOf(error);
       if (failure.field === "revision") { setStale(true); setNotice({ tone: "error", text: failure.message }); }
@@ -130,7 +132,7 @@ function ManageVisit({ token, view, onNotice: setNotice, onView, onReload }: { t
     try {
       const result = await guestRequest<unknown>(publicVisitsRoutes.manageCancel, { method: "POST", body: { token, revision: booking.revision } });
       setCanceling(false);
-      applyResult(result, `Visit canceled. We emailed ${booking.contactEmail}.`);
+      applyResult(result, `Visit canceled. A confirmation is on its way to ${booking.contactEmail}.`);
     } catch (error) {
       const failure = failureOf(error);
       if (failure.field === "revision") setStale(true);
