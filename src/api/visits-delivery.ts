@@ -1,7 +1,8 @@
-// Queued email and Discord work in visits_notifications. A booking change queues its notifications in the same batch as
-// the change; the request then tries to send them at once, and the visits.notifications job sends whatever is still due,
-// retries failures, posts the weekly summary and forgets expired operational rows. A row being sent holds a lease, and
-// every provider call is idempotent (the email idempotency key and the Discord nonce are fixed per notification).
+// Queued email, Discord and Outreach work in visits_notifications. A booking change queues its notifications in the same
+// batch as the change; the request then tries to send its email and Discord messages at once, and the
+// visits.notifications job sends whatever is still due, records visits in Outreach, retries failures, posts the weekly
+// summary and forgets expired operational rows. A row being sent holds a lease, and every provider call is idempotent
+// (the email idempotency key and the Discord nonce are fixed per notification, and Outreach's operations find or create).
 import type { D1Database, D1Statement } from "@lancerlogin/module-sdk/api";
 import type { FieldChange, VisitProgram } from "../shared/visits-booking.ts";
 import { dailyEmailCap, emailAddressHash, emailLimitDay, nextEmailDayStartMs, purgeEmailLimitsSql, releaseEmailSql, reserveEmailSql } from "../shared/visits-limits.ts";
@@ -16,9 +17,10 @@ import {
 } from "../shared/visits-text.ts";
 import { generateManageToken, hashManageToken, manageLink } from "../shared/visits-tokens.ts";
 import { addDays, dayMs, localMoment } from "../shared/visits-time.ts";
+import { outreachAccess, queueOutreachStatement, recordInOutreach } from "./visits-outreach.ts";
 import { emailCappedMessage } from "./visits-queries.ts";
 import { readSettings } from "./visits-settings.ts";
-import { installationId, iso, rows, teamIdentity as identityOf, type BookingRow, type VisitsDeps } from "./visits-runtime.ts";
+import { installationId, iso, rows, teamIdentity as identityOf, type BookingRow, type VisitsDeps, type VisitsOutreachClient } from "./visits-runtime.ts";
 
 /** Who guests visit, in email text: "Your visit to our team is booked." Core keeps the organization's name. */
 export const guestHostName = "our team";
@@ -60,7 +62,25 @@ async function claim(db: D1Database, id: string, now: number): Promise<string | 
   return result.meta?.changes === 1 ? lease : null;
 }
 
-async function finish(db: D1Database, row: NotificationRow, lease: string, outcome: Outcome, now: number): Promise<"delivered" | "skipped" | "pending" | "failed"> {
+/** Another Outreach record of the same booking that waits; at most one may, so a retried row then gives way to it. */
+const waitingOutreachSibling = "EXISTS(SELECT 1 FROM visits_notifications o WHERE o.installation_id=visits_notifications.installation_id AND o.booking_id=visits_notifications.booking_id AND o.channel='outreach' AND o.status='pending' AND o.id!=visits_notifications.id)";
+const supersededOutreachNote = "A newer Outreach record of this visit replaced this one";
+
+type Finished = "delivered" | "skipped" | "pending" | "failed";
+
+async function finish(db: D1Database, row: NotificationRow, lease: string, outcome: Outcome, now: number): Promise<Finished> {
+  if (outcome.status === "retry" && row.channel === "outreach") {
+    const next = afterFailedAttempt({ attempts: row.attempts + 1, now, permanent: outcome.permanent });
+    if (next.status === "failed") {
+      await db.prepare(finishNotificationSql).bind("failed", null, null, outcome.error.slice(0, 500), iso(now), installationId, row.id, lease).run();
+      return "failed";
+    }
+    const retried = await db.prepare(`UPDATE visits_notifications SET status=CASE WHEN ${waitingOutreachSibling} THEN 'skipped' ELSE 'pending' END,
+      next_attempt_ms=CASE WHEN ${waitingOutreachSibling} THEN NULL ELSE ? END,last_error=CASE WHEN ${waitingOutreachSibling} THEN ? ELSE ? END,lease_token=NULL,lease_expires_ms=NULL,updated_at=?
+      WHERE installation_id=? AND id=? AND status='sending' AND lease_token=? RETURNING status`)
+      .bind(next.nextAttemptMs, supersededOutreachNote, outcome.error.slice(0, 500), iso(now), installationId, row.id, lease).first<{ status: Finished }>();
+    return retried?.status ?? "pending";
+  }
   if (outcome.status === "capped") {
     // Waiting under the cap is not a failed attempt.
     await db.prepare("UPDATE visits_notifications SET status='pending',attempts=max(attempts-1,0),next_attempt_ms=?,last_error=?,lease_token=NULL,lease_expires_ms=NULL,updated_at=? WHERE installation_id=? AND id=? AND status='sending' AND lease_token=?")
@@ -189,18 +209,27 @@ async function deliverDiscord(db: D1Database, deps: VisitsDeps, row: Notificatio
   }
 }
 
-async function deliver(db: D1Database, deps: VisitsDeps, row: NotificationRow, now: number) {
+type DeliverOptions = {
+  /** The Outreach client, for Outreach records. */
+  readonly outreach?: VisitsOutreachClient;
+  /** Nothing retries this row later (Record in Outreach without a grant), so a failure is final. */
+  readonly final?: boolean;
+};
+
+async function deliver(db: D1Database, deps: VisitsDeps, row: NotificationRow, now: number, options: DeliverOptions = {}): Promise<{ readonly status: Finished; readonly outcome: Outcome } | null> {
   const lease = await claim(db, row.id, now);
   if (!lease) return null;
   let outcome: Outcome;
   try {
     outcome = row.channel === "email" ? await deliverEmail(db, deps, row, now)
       : row.channel === "discord" ? await deliverDiscord(db, deps, row, now)
-        : { status: "retry", error: "Recording in Outreach is not available in this version", permanent: true };
+        : options.outreach ? await recordInOutreach(db, deps, options.outreach, row.booking_id, now)
+          : { status: "retry", error: "Outreach is unavailable" };
   } catch (error) {
     outcome = { status: "retry", error: errorText(error) };
   }
-  return finish(db, row, lease, outcome, now);
+  if (options.final && outcome.status === "retry") outcome = { ...outcome, permanent: true };
+  return { status: await finish(db, row, lease, outcome, now), outcome };
 }
 
 const notificationColumns = "id,channel,kind,booking_id,summary_date,payload_json,attempts";
@@ -245,26 +274,47 @@ export async function scheduleWeeklySummary(db: D1Database, deps: VisitsDeps, di
   return decision;
 }
 
-export type NotificationPass = { readonly recovered: number; readonly delivered: number; readonly pending: number; readonly failed: number; readonly skipped: number; readonly summary: SummaryDecision["action"] };
+export type NotificationPass = {
+  readonly recovered: number; readonly delivered: number; readonly pending: number; readonly failed: number; readonly skipped: number;
+  readonly summary: SummaryDecision["action"];
+  /** Whether an Admin's grant let this pass record visits in Outreach. */
+  readonly outreachGranted: boolean;
+};
+
+/**
+ * Before leases are taken back: an Outreach record whose sender stopped gives way to another record of the same visit
+ * that waits, or to a later stopped one, since at most one may wait per visit. Binds updated_at, installation ID and now
+ * twice.
+ */
+const supersedeStoppedOutreachSql = `UPDATE visits_notifications SET status='skipped',lease_token=NULL,lease_expires_ms=NULL,next_attempt_ms=NULL,last_error='${supersededOutreachNote}',updated_at=?
+  WHERE installation_id=? AND channel='outreach' AND status='sending' AND lease_expires_ms<=? AND EXISTS(SELECT 1 FROM visits_notifications o WHERE o.installation_id=visits_notifications.installation_id
+    AND o.booking_id=visits_notifications.booking_id AND o.channel='outreach' AND o.id!=visits_notifications.id AND (o.status='pending' OR (o.status='sending' AND o.lease_expires_ms<=? AND o.rowid>visits_notifications.rowid)))`;
 
 /**
  * The visits.notifications job: take back rows whose sender stopped, queue the weekly summary when due, send due email and
- * Discord notifications (leaving a provider's rows queued while it is not ready), then forget old daily email counts,
- * expired or long-revoked manage links and old guest submission keys. Core runs it only while Guest Visits is enabled and
- * set up, and every statement rechecks that.
+ * Discord notifications and record due visits in Outreach (leaving a provider's rows queued while it is not ready, or
+ * while no Admin's grant lets Guest Visits use Outreach), then forget old daily email counts, expired or long-revoked
+ * manage links and old guest submission keys. Each pass also notes whether the grant exists, so requests know whether to
+ * queue Outreach records. Core runs it only while Guest Visits is enabled and set up, and every statement rechecks that.
  */
 export async function processVisitsNotifications(db: D1Database, deps: VisitsDeps, limit = notificationsPerPass): Promise<NotificationPass> {
   const now = deps.now();
-  const recovered = (await db.prepare(recoverExpiredLeasesSql).bind(iso(now), installationId, now).run()).meta?.changes ?? 0;
+  const [, recover] = await db.batch([
+    db.prepare(supersedeStoppedOutreachSql).bind(iso(now), installationId, now, now),
+    db.prepare(recoverExpiredLeasesSql).bind(iso(now), installationId, now),
+  ]);
+  const recovered = recover?.meta?.changes ?? 0;
   const channels = await readyChannels(deps);
   const summary = await scheduleWeeklySummary(db, deps, channels.includes("discord"), now);
+  const outreach = await outreachAccess(db, deps, now, { checked: true });
+  if (outreach.client && outreach.granted) channels.push("outreach");
   const counts = { delivered: 0, pending: 0, failed: 0, skipped: 0 };
   if (channels.length) {
     const due = await rows<NotificationRow>(db.prepare(`SELECT ${notificationColumns} FROM visits_notifications WHERE installation_id=? AND status='pending' AND next_attempt_ms<=? AND channel IN (SELECT value FROM json_each(?)) ORDER BY next_attempt_ms,id LIMIT ?`)
       .bind(installationId, now, JSON.stringify(channels), limit));
     for (const row of due) {
-      const result = await deliver(db, deps, row, now);
-      if (result) counts[result] += 1;
+      const result = await deliver(db, deps, row, now, { outreach: outreach.client });
+      if (result) counts[result.status] += 1;
     }
   }
   const timeZone = await deps.timeZone();
@@ -274,5 +324,25 @@ export async function processVisitsNotifications(db: D1Database, deps: VisitsDep
     db.prepare("DELETE FROM visits_manage_tokens WHERE installation_id=? AND (expires_ms<=? OR revoked_ms<=?)").bind(installationId, now, now - revokedTokenRetentionMs),
     db.prepare("DELETE FROM visits_public_submission_keys WHERE installation_id=? AND created_ms<?").bind(installationId, now - submissionKeyRetentionMs),
   ]);
-  return { recovered, ...counts, summary: summary.action };
+  return { recovered, ...counts, summary: summary.action, outreachGranted: outreach.granted };
+}
+
+/** One visit's result of Record in Outreach, before the route adds the booking ID. */
+export type OutreachRecordState = { readonly state: "recorded" | "pending" | "failed" | "skipped"; readonly activityId: string | null; readonly error?: string };
+
+/**
+ * Record one visit in Outreach now, for Record in Outreach: queue its record (or make the waiting one due) and do it with
+ * the request's client. `final` marks a record nothing will retry, because no Admin's grant lets the job use Outreach.
+ * A record the job is doing at this moment is reported as pending.
+ */
+export async function recordOutreachNow(db: D1Database, deps: VisitsDeps, client: VisitsOutreachClient, bookingId: string, options: { readonly final: boolean }): Promise<OutreachRecordState> {
+  const now = deps.now();
+  await queueOutreachStatement(db, bookingId, now, { dueNow: true }).run();
+  const row = await db.prepare(`SELECT ${notificationColumns} FROM visits_notifications WHERE installation_id=? AND channel='outreach' AND booking_id=? AND status='pending'`).bind(installationId, bookingId).first<NotificationRow>();
+  const result = row ? await deliver(db, deps, row, now, { outreach: client, final: options.final }) : null;
+  if (!result) return { state: "pending", activityId: null };
+  const { outcome } = result;
+  if (result.status === "delivered") return { state: "recorded", activityId: outcome.status === "delivered" ? outcome.externalId ?? null : null };
+  if (result.status === "skipped") return { state: "skipped", activityId: null, error: outcome.status === "skipped" ? outcome.note : supersededOutreachNote };
+  return { state: result.status, activityId: null, ...(outcome.status === "retry" ? { error: outcome.error } : {}) };
 }

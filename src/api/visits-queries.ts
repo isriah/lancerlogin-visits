@@ -1,7 +1,9 @@
-// Reads the workspace shares: staff booking rows with their team, window and email state, and what Needs attention lists.
+// Reads the workspace shares: staff booking rows with their team, window, email and Outreach state, and what Needs
+// attention lists.
 import type { D1Database } from "@lancerlogin/module-sdk/api";
 import type { BookingHistoryEntry, EmailState, StaffBooking, StaffBookingDetail } from "../shared/visits-api.ts";
 import type { FieldChange, VisitProgram } from "../shared/visits-booking.ts";
+import { outreachState } from "../shared/visits-outreach.ts";
 import type { CivilTime } from "../shared/visits-time.ts";
 import { attentionOf, bookingColumns, installationId, localTimes, rows, VisitsError, type BookingRow } from "./visits-runtime.ts";
 
@@ -11,17 +13,25 @@ export const emailCappedMessage = "Waiting: this address reached its daily Guest
 /** Status and error of each booking's latest email. */
 const emailStateColumns = ["status", "last_error"].map((column) => `(SELECT n.${column} FROM visits_notifications n WHERE n.installation_id=b.installation_id AND n.booking_id=b.id AND n.channel='email' ORDER BY n.created_at DESC,n.rowid DESC LIMIT 1) AS email_${column === "status" ? "status" : "error"}`).join(",");
 
+/** Status, error and handled mark of each booking's latest Outreach record. */
+const outreachStateColumns = [["status", "n.status"], ["error", "n.last_error"], ["handled", "json_extract(n.payload_json,'$.handled')"]]
+  .map(([name, value]) => `(SELECT ${value} FROM visits_notifications n WHERE n.installation_id=b.installation_id AND n.booking_id=b.id AND n.channel='outreach' ORDER BY n.created_at DESC,n.rowid DESC LIMIT 1) AS outreach_${name}`).join(",");
+
 /**
- * What Needs attention lists: visits whose window was canceled, removed or changed (until staff handle them), and visits
- * whose latest email failed or waits under the daily cap.
+ * What Needs attention lists: visits whose window was canceled, removed or changed, or that were recorded in Outreach
+ * before they were canceled or moved (until staff handle them), visits whose latest email failed or waits under the
+ * daily cap, and visits whose latest Outreach record failed.
  */
-const attentionPredicate = `(attention='needed' OR email_status='failed' OR (email_status='pending' AND email_error='${emailCappedMessage}'))`;
+const attentionPredicate = `(attention='needed' OR email_status='failed' OR (email_status='pending' AND email_error='${emailCappedMessage}') OR outreach_status='failed')`;
 
-export const attentionCountSql = `SELECT COUNT(*) AS count FROM (SELECT b.attention,${emailStateColumns} FROM visits_bookings b WHERE b.installation_id=? AND b.removed=0) WHERE ${attentionPredicate}`;
+export const attentionCountSql = `SELECT COUNT(*) AS count FROM (SELECT b.attention,${emailStateColumns},${outreachStateColumns} FROM visits_bookings b WHERE b.installation_id=? AND b.removed=0) WHERE ${attentionPredicate}`;
 
-export type StaffBookingRow = BookingRow & { team_number: string; team_name: string; team_program: VisitProgram; window_title: string; email_status: string | null; email_error: string | null };
+export type StaffBookingRow = BookingRow & {
+  team_number: string; team_name: string; team_program: VisitProgram; window_title: string; email_status: string | null; email_error: string | null;
+  outreach_status: string | null; outreach_error: string | null; outreach_handled: number | null;
+};
 
-const staffBookingSelect = `SELECT ${bookingColumns},t.number AS team_number,t.name AS team_name,t.program AS team_program,w.title AS window_title,${emailStateColumns}
+const staffBookingSelect = `SELECT ${bookingColumns},t.number AS team_number,t.name AS team_name,t.program AS team_program,w.title AS window_title,${emailStateColumns},${outreachStateColumns}
   FROM visits_bookings b JOIN visits_teams t ON t.installation_id=b.installation_id AND t.id=b.team_id
   JOIN visits_windows w ON w.installation_id=b.installation_id AND w.id=b.window_id`;
 
@@ -42,8 +52,7 @@ export function staffBooking(civil: CivilTime, timeZone: string, row: StaffBooki
     windowId: row.window_id, windowTitle: row.window_title, headcount: row.headcount, note: row.note,
     contactName: row.contact_name, contactEmail: row.contact_email, contactPhone: row.contact_phone,
     attention: attentionOf(row), email: emailState(row.email_status, row.email_error),
-    // Recording in Outreach arrives in a later version.
-    outreach: null,
+    outreach: outreachState({ program: row.team_program, activityId: row.outreach_activity_id, status: row.outreach_status, error: row.outreach_error, handled: Number(row.outreach_handled) === 1 }),
     createdMs: Date.parse(row.created_at), updatedMs: Date.parse(row.updated_at),
   };
 }

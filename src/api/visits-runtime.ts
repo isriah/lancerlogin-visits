@@ -1,7 +1,7 @@
-// What every Guest Visits Worker handler shares: the dependencies Core supplies (civil time, time zone, clock, email and
-// Discord), the request context shape, errors with the field they are about, request parsing, SQL guards and the
-// conversions between rows and the HTTP contract. Handlers take `(context, deps)` so tests run them without Core: this file
-// imports only type declarations from the module SDK, which are erased at run time.
+// What every Guest Visits Worker handler shares: the dependencies Core supplies (civil time, time zone, clock, email,
+// Discord and Outreach), the request context shape, errors with the field they are about, request parsing, SQL guards
+// and the conversions between rows and the HTTP contract. Handlers take `(context, deps)` so tests run them without Core:
+// this file imports only type declarations from the module SDK, which are erased at run time.
 import type { D1Database, D1Statement } from "@lancerlogin/module-sdk/api";
 import type { LocalVisitTimes, StaffWindow } from "../shared/visits-api.ts";
 import type { Attention, AttentionReason, BookableWindow, BookingDetails, TeamIdentity, VisitProgram } from "../shared/visits-booking.ts";
@@ -24,6 +24,21 @@ export type VisitsDiscordService = {
   providerStatus(error: unknown): number | undefined;
 };
 
+/** A client for Outreach's team support interface. Structurally the SDK's `ModuleInterfaceClient`. */
+export type VisitsOutreachClient = { call(operation: string, input?: unknown): Promise<unknown> };
+/** Core's cross-module calls to Outreach, from `services.modules`. */
+export type VisitsOutreachAccess = {
+  /**
+   * A client while Outreach is enabled and set up and something authorizes Guest Visits' calls: an Admin's grant, or in a
+   * workspace request the signed-in staff member's own Outreach access. Undefined otherwise.
+   */
+  client(): Promise<VisitsOutreachClient | undefined>;
+  /** True where no one is signed in (guest requests and the job), so a client can only come from an Admin's grant. */
+  readonly grantOnly: boolean;
+  /** HTTP status of a refused call (the provider's or Core's), or undefined for any other error. */
+  providerStatus(error: unknown): number | undefined;
+};
+
 /** Everything a handler needs from Core besides the request, so tests can pass stand-ins and a controlled clock. */
 export type VisitsDeps = {
   readonly civil: CivilTime;
@@ -32,6 +47,7 @@ export type VisitsDeps = {
   now(): number;
   readonly email: VisitsEmailService;
   readonly discord: VisitsDiscordService;
+  readonly outreach: VisitsOutreachAccess;
   /** Where the dashboard is served, for manage links and the public origin check. */
   readonly dashboardOrigin: string | undefined;
 };

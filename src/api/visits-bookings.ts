@@ -1,18 +1,21 @@
-// Visits: the guest page and booking, the manage page reached from the emailed link, staff changes to visits, and guest
-// teams. Every change writes the booking, a change-history row and its notifications in one batch, guarded by the
-// booking's revision, and then tries to send the notifications at once.
+// Visits: the guest page and booking, the manage page reached from the emailed link, staff changes to visits, guest
+// teams and Record in Outreach. Every change writes the booking, a change-history row and its notifications (including
+// its Outreach record, when an Admin's grant allows it) in one batch, guarded by the booking's revision, and then tries
+// to send its email and Discord messages at once. Only the job and Record in Outreach call Outreach.
 import type { D1Database, D1Statement } from "@lancerlogin/module-sdk/api";
-import type { ManageView, PublicBookingResult, PublicCalendar, PublicTeamLookup, StaffBookingDetail, StaffTeam } from "../shared/visits-api.ts";
+import type { ManageView, OutreachRecordResult, PublicBookingResult, PublicCalendar, PublicTeamLookup, StaffBookingDetail, StaffTeam } from "../shared/visits-api.ts";
 import {
   applyGuestCancel, applyGuestEdit, bookingFingerprintText, bookingRevisionRow, checkGuestVisit, diffBooking, findFittingWindow, guestHorizonDays,
-  handledAttention, maximumTeamNameLength, nextAttention, noAttention, parseBookingInput, parseBookingSnapshot, parseEmail, parseGuestEdit, parseProgram,
-  parseTeamNumber, publicWindows, resolveVisitTimes, submissionOutcome, windowAttentionReason,
-  type Attention, type BookableWindow, type BookingDetails, type FieldChange, type RevisionAction, type RevisionActor, type TeamIdentity,
+  handledAttention, maximumTeamNameLength, nextAttention, noAttention, outreachProgram, parseBookingInput, parseBookingSnapshot, parseEmail, parseGuestEdit,
+  parseProgram, parseTeamNumber, publicWindows, resolveVisitTimes, submissionOutcome, windowAttentionReason,
+  type Attention, type BookableWindow, type BookingDetails, type FieldChange, type RevisionAction, type RevisionActor, type TeamIdentity, type VisitProgram,
 } from "../shared/visits-booking.ts";
 import { normalizeEmailAddress } from "../shared/visits-limits.ts";
+import { maximumOutreachRecordBatch } from "../shared/visits-outreach.ts";
 import { checkManageToken, hashManageToken, isManageToken, manageTokenRefusedMessage, sha256Hex } from "../shared/visits-tokens.ts";
 import { dayMs, singleLine } from "../shared/visits-time.ts";
-import { deliverNow, queueNotificationStatement } from "./visits-delivery.ts";
+import { deliverNow, queueNotificationStatement, recordOutreachNow } from "./visits-delivery.ts";
+import { outreachAccess, outreachChange, queueOutreachStatement } from "./visits-outreach.ts";
 import { staffBookingDetail } from "./visits-queries.ts";
 import { readSettings } from "./visits-settings.ts";
 import {
@@ -142,6 +145,8 @@ export async function bookVisit(db: D1Database, deps: VisitsDeps, value: unknown
   const bookingId = crypto.randomUUID();
   const at = iso(now);
   const notifications = await notificationStatements(db, deps, { bookingId, email: "booked", discord: "booked", origin, now });
+  // A guest request has no signed-in user, so Outreach is reachable only through an Admin's grant.
+  const outreach = outreachProgram(input.team.program) !== null && (await outreachAccess(db, deps, now)).granted;
   const team = "(SELECT id FROM visits_teams WHERE installation_id=? AND program=? AND number=? AND archived=0)";
   try {
     await db.batch([
@@ -155,6 +160,7 @@ export async function bookVisit(db: D1Database, deps: VisitsDeps, value: unknown
         SELECT installation_id,id,0,'created','guest','[]',${snapshotSql()},? FROM visits_bookings WHERE installation_id=? AND id=?`).bind(at, installationId, bookingId),
       db.prepare("INSERT INTO visits_public_submission_keys(installation_id,key_hash,fingerprint,booking_id,created_ms) VALUES(?,?,?,?,?)").bind(installationId, keyHash, fingerprint, bookingId, now),
       ...notifications.statements,
+      ...(outreach ? [queueOutreachStatement(db, bookingId, now)] : []),
     ]);
   } catch (error) {
     if (guardFailed(error, "visits_window_changed")) throw new VisitsError(409, "That time is no longer open. Choose another time.", "arrival");
@@ -185,7 +191,10 @@ type BookingChange = {
   readonly checkWindow?: boolean;
 };
 
-/** Write a booking change, its history row and notifications in one batch guarded by the revision, then try to send. */
+/**
+ * Write a booking change, its history row and notifications in one batch guarded by the revision, then try to send. The
+ * change's Outreach consequences (a new record, forgetting a stored activity, attention) apply in the same batch.
+ */
 async function applyBookingChange(db: D1Database, deps: VisitsDeps, change: BookingChange): Promise<void> {
   const { current, next } = change;
   const now = deps.now();
@@ -193,19 +202,22 @@ async function applyBookingChange(db: D1Database, deps: VisitsDeps, change: Book
   const revision = current.revision + 1;
   const emailChanged = normalizeEmailAddress(current.contact_email) !== normalizeEmailAddress(next.contactEmail);
   const notifications = await notificationStatements(db, deps, { bookingId: current.id, email: change.email, discord: change.discord, origin: change.origin, changes: change.changes, now });
+  const outreach = await outreachChange(db, deps, { current, next, removed: Boolean(change.removed), attention: change.attention, now });
   const history = bookingRevisionRow({ bookingId: current.id, revision, action: change.action, actor: change.actor, changes: change.changes, snapshot: next, at });
   const statements: D1Statement[] = [
     guardStatement(db, "visits_stale_booking", "EXISTS(SELECT 1 FROM visits_bookings WHERE installation_id=? AND id=? AND revision=?)", installationId, current.id, current.revision),
     ...(change.checkWindow ? [guardStatement(db, "visits_window_changed", "EXISTS(SELECT 1 FROM visits_windows WHERE installation_id=? AND id=? AND status='open' AND start_ms<=? AND end_ms>=?)", installationId, next.windowId, next.arrivalMs, next.departureMs)] : []),
     db.prepare(`UPDATE visits_bookings SET window_id=?,team_id=?,contact_name=?,contact_email=?,contact_phone=?,arrival_ms=?,departure_ms=?,headcount=?,note=?,status=?,removed=?,
-      attention=?,attention_reason=?,revision=?,updated_at=? WHERE installation_id=? AND id=? AND revision=?`).bind(next.windowId, next.teamId, next.contactName, next.contactEmail, next.contactPhone,
-      next.arrivalMs, next.departureMs, next.headcount, next.note, next.status, change.removed ? 1 : 0, change.attention.state, change.attention.reason, revision, at, installationId, current.id, current.revision),
+      attention=?,attention_reason=?,outreach_activity_id=CASE WHEN ? THEN NULL ELSE outreach_activity_id END,revision=?,updated_at=? WHERE installation_id=? AND id=? AND revision=?`)
+      .bind(next.windowId, next.teamId, next.contactName, next.contactEmail, next.contactPhone, next.arrivalMs, next.departureMs, next.headcount, next.note, next.status,
+        change.removed ? 1 : 0, outreach.attention.state, outreach.attention.reason, outreach.clearActivity ? 1 : 0, revision, at, installationId, current.id, current.revision),
     db.prepare("INSERT INTO visits_booking_revisions(installation_id,booking_id,revision,action,actor_kind,staff_user_id,change_json,snapshot_json,created_at) VALUES(?,?,?,?,?,?,?,?,?)")
       .bind(installationId, history.booking_id, history.revision, history.action, history.actor_kind, history.staff_user_id, history.change_json, history.snapshot_json, history.created_at),
     // Every link works until the visit ends, wherever it moves; correcting the address revokes every earlier link.
     ...(next.departureMs !== current.departure_ms ? [db.prepare("UPDATE visits_manage_tokens SET expires_ms=? WHERE installation_id=? AND booking_id=? AND revoked_ms IS NULL").bind(next.departureMs, installationId, current.id)] : []),
     ...(emailChanged ? [db.prepare("UPDATE visits_manage_tokens SET revoked_ms=? WHERE installation_id=? AND booking_id=? AND revoked_ms IS NULL").bind(now, installationId, current.id)] : []),
     ...notifications.statements,
+    ...(outreach.queue ? [queueOutreachStatement(db, current.id, now)] : []),
   ];
   try {
     await db.batch(statements);
@@ -436,7 +448,10 @@ export async function staffResend(db: D1Database, deps: VisitsDeps, id: string, 
   return ok(await detail(db, deps, id));
 }
 
-/** Staff contacted the team: the visit's attention is handled, and its failed emails no longer need attention. */
+/**
+ * Staff contacted the team: the visit's attention is handled, and its failed emails and Outreach records no longer need
+ * attention. A handled Outreach record still shows as failed until the visit is recorded.
+ */
 export async function staffHandled(db: D1Database, deps: VisitsDeps, id: string): Promise<RouteResult> {
   const booking = await requireBooking(db, id);
   const attention = handledAttention(attentionOf(booking));
@@ -444,6 +459,7 @@ export async function staffHandled(db: D1Database, deps: VisitsDeps, id: string)
   await db.batch([
     db.prepare("UPDATE visits_bookings SET attention=?,attention_reason=?,updated_at=? WHERE installation_id=? AND id=?").bind(attention.state, attention.reason, at, installationId, id),
     db.prepare("UPDATE visits_notifications SET status='skipped',updated_at=? WHERE installation_id=? AND booking_id=? AND channel='email' AND status='failed'").bind(at, installationId, id),
+    db.prepare("UPDATE visits_notifications SET status='skipped',payload_json=json_set(payload_json,'$.handled',1),updated_at=? WHERE installation_id=? AND booking_id=? AND channel='outreach' AND status='failed'").bind(at, installationId, id),
   ]);
   return ok(await detail(db, deps, id));
 }
@@ -496,11 +512,23 @@ export async function mergeTeam(db: D1Database, deps: VisitsDeps, id: string, us
   if (from.archived === 1) throw new VisitsError(409, "This team was already merged", "id");
   if (into.archived === 1) throw new VisitsError(400, "Choose a team that has not been merged into another", "intoId");
   if (from.program !== into.program) throw new VisitsError(400, "Merge only teams in the same program", "intoId");
-  const at = iso(deps.now());
+  const now = deps.now();
+  const at = iso(now);
   const changes = "json_array(json_object('field','teamId','from',team_id,'to',?))";
+  // Visits recorded under another Outreach supported team than the kept team's keep that activity in Outreach, need
+  // attention and are recorded again for the kept team when an Admin's grant allows it.
+  const relink = from.outreach_team_id !== into.outreach_team_id;
+  const requeue = relink && outreachProgram(into.program) !== null && (await outreachAccess(db, deps, now)).granted;
+  const recorded = "installation_id=? AND team_id=? AND status='booked' AND removed=0 AND outreach_activity_id IS NOT NULL";
+  const kept = "attention='needed' AND attention_reason IS NOT NULL AND attention_reason!='outreach-activity-kept'";
   try {
     await db.batch([
       guardStatement(db, "visits_stale_team", "EXISTS(SELECT 1 FROM visits_teams WHERE installation_id=? AND id=? AND archived=0) AND EXISTS(SELECT 1 FROM visits_teams WHERE installation_id=? AND id=? AND archived=0)", installationId, id, installationId, intoId),
+      ...(requeue ? [db.prepare(`INSERT INTO visits_notifications(installation_id,id,channel,kind,booking_id,payload_json,status,attempts,next_attempt_ms,created_at,updated_at)
+        SELECT installation_id,lower(hex(randomblob(16))),'outreach','outreach-record',id,'{}','pending',0,?,?,? FROM visits_bookings WHERE ${recorded}
+        ON CONFLICT(installation_id,booking_id) WHERE channel='outreach' AND status='pending' DO NOTHING`).bind(now, at, at, installationId, id)] : []),
+      ...(relink ? [db.prepare(`UPDATE visits_bookings SET outreach_activity_id=NULL,attention=CASE WHEN ${kept} THEN attention ELSE 'needed' END,
+        attention_reason=CASE WHEN ${kept} THEN attention_reason ELSE 'outreach-activity-kept' END,updated_at=? WHERE ${recorded}`).bind(at, installationId, id)] : []),
       db.prepare(`INSERT INTO visits_booking_revisions(installation_id,booking_id,revision,action,actor_kind,staff_user_id,change_json,snapshot_json,created_at)
         SELECT installation_id,id,revision+1,'updated','staff',?,${changes},${snapshotSql("?")},? FROM visits_bookings WHERE installation_id=? AND team_id=?`).bind(userId, intoId, intoId, at, installationId, id),
       db.prepare("UPDATE visits_bookings SET team_id=?,revision=revision+1,updated_at=? WHERE installation_id=? AND team_id=?").bind(intoId, at, installationId, id),
@@ -511,4 +539,43 @@ export async function mergeTeam(db: D1Database, deps: VisitsDeps, id: string, us
     throw error;
   }
   return ok(staffTeam(await requireTeam(db, intoId)));
+}
+
+// Record in Outreach.
+
+/** The 409 when nothing lets Guest Visits use Outreach for this request. */
+export const outreachAccessMessage = "Guest Visits has no access to Outreach. An Admin can grant it in Settings > Modules > Module access, or ask someone who manages Outreach to record these visits.";
+
+/**
+ * Record visits in Outreach now, through an Admin's grant or the staff member's own Outreach access: booked visits of
+ * Outreach's programs, at most `maximumOutreachRecordBatch` per request. With a grant, visits beyond that are queued for
+ * the job; without one they wait for another request. Repeating changes nothing in Outreach.
+ */
+export async function recordOutreach(db: D1Database, deps: VisitsDeps, value: unknown): Promise<RouteResult> {
+  const input = objectBody(value);
+  onlyFields(input, ["bookingIds"]);
+  const list = input.bookingIds;
+  if (!Array.isArray(list) || !list.length || list.length > 500 || list.some((id) => typeof id !== "string" || !id || id.length > 64)) throw new VisitsError(400, "Choose the visits to record", "bookingIds");
+  const ids = [...new Set(list as string[])];
+  const now = deps.now();
+  const access = await outreachAccess(db, deps, now);
+  if (!access.client) throw new VisitsError(409, outreachAccessMessage);
+  const results: OutreachRecordResult[] = [];
+  for (const [index, bookingId] of ids.entries()) {
+    const booking = await db.prepare("SELECT b.status,b.removed,t.program FROM visits_bookings b JOIN visits_teams t ON t.installation_id=b.installation_id AND t.id=b.team_id WHERE b.installation_id=? AND b.id=?")
+      .bind(installationId, bookingId).first<{ status: "booked" | "canceled"; removed: number; program: VisitProgram }>();
+    const refusal = !booking ? "This visit was not found" : booking.removed === 1 ? "This visit was removed" : booking.status !== "booked" ? "Canceled visits are not recorded in Outreach"
+      : outreachProgram(booking.program) === null ? "Outreach does not support teams with program Other" : null;
+    if (refusal) {
+      results.push({ bookingId, state: "skipped", activityId: null, error: refusal });
+    } else if (index < maximumOutreachRecordBatch) {
+      results.push({ bookingId, ...await recordOutreachNow(db, deps, access.client, bookingId, { final: !access.granted }) });
+    } else if (access.granted) {
+      await queueOutreachStatement(db, bookingId, now).run();
+      results.push({ bookingId, state: "pending", activityId: null });
+    } else {
+      results.push({ bookingId, state: "skipped", activityId: null, error: `Record in Outreach records at most ${maximumOutreachRecordBatch} visits at a time. Record the rest again.` });
+    }
+  }
+  return ok({ results });
 }

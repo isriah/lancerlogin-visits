@@ -210,7 +210,7 @@ test("roles and origins: staff routes for Admins and Operators, settings for Adm
   assert.equal((await harness.call("PUT", "/admin/visits/settings", { body: { revision: 0, introText: "Hi" }, origin: null })).status, 403);
   assert.equal((await harness.call("GET", "/admin/visits/nothing-here")).status, 404);
   assert.equal((await harness.call("PATCH", "/admin/visits/series")).status, 405);
-  assert.equal((await harness.call("POST", "/admin/visits/outreach", { body: { bookingIds: [] } })).body.error, "Recording in Outreach is not available in this version");
+  assert.equal((await harness.call("POST", "/admin/visits/outreach", { body: { bookingIds: ["booking-1"] } })).status, 409, "without Outreach");
   assert.deepEqual((await harness.call("GET", "/admin/visits/status")).body.outreach, { available: false, granted: false });
 });
 
