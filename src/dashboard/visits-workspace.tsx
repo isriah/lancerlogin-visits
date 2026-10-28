@@ -48,6 +48,7 @@ export function VisitsWorkspace({ role }: { role: DashboardRole }) {
   </section>;
 }
 
+type Banner = { readonly key: string; readonly tone: string; readonly text: ReactNode };
 /** Where Admins grant Guest Visits access to Outreach: Settings > Modules > Module access. */
 const moduleAccessPath = "/settings/modules";
 
@@ -57,7 +58,7 @@ const moduleAccessPath = "/settings/modules";
  */
 function StatusBanners({ status, role, section, attentionHref, navigate }: { status: VisitsStatus; role: DashboardRole; section: Section; attentionHref: string; navigate: (path: string) => void }) {
   const failed = status.failedNotifications;
-  const banners: { key: string; tone: string; text: ReactNode }[] = [
+  const candidates: (Banner | false)[] = [
     !status.email.ready && { key: "email", tone: "warning", text: `Confirmation emails are waiting: Core's Resend connection is not ready. Bookings still save, and their emails send once it is ready.${role === "admin" ? " Check Settings > Integrations." : " Ask an Admin to check Settings > Integrations."}` },
     status.discord.enabled && !status.discord.ready && { key: "discord", tone: "warning", text: "Guest Visits Discord messages are on, but Core's Discord connection is not ready, so no Discord messages are queued." },
     failed > 0 && { key: "failed", tone: "error", text: `${failed} ${failed === 1 ? "message" : "messages"} failed to send. Guest Visits retries every five minutes; visits whose email failed are in Needs attention.` },
@@ -65,7 +66,8 @@ function StatusBanners({ status, role, section, attentionHref, navigate }: { sta
       key: "outreach", tone: "neutral",
       text: <>Visits are recorded in Outreach only when staff use Record in Outreach. To record every booking automatically, grant Guest Visits access to Outreach in <a href={moduleAccessPath} onClick={inPageLink(navigate, moduleAccessPath)}>Settings &gt; Modules &gt; Module access</a>.</>,
     },
-  ].filter((banner): banner is { key: string; tone: string; text: ReactNode } => Boolean(banner));
+  ];
+  const banners = candidates.filter((banner): banner is Banner => Boolean(banner));
   const attention = status.attentionCount > 0 && section !== "attention";
   if (!banners.length && !attention) return null;
   return <div className="visits-banners">
