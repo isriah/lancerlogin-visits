@@ -108,7 +108,8 @@ CREATE TABLE visits_teams (
 );
 CREATE UNIQUE INDEX visits_teams_number ON visits_teams(installation_id, program, number) WHERE archived = 0;
 
--- Booked and canceled visits. Contact details and the note are visible to staff only.
+-- Booked and canceled visits. Contact details and the note are visible to staff only. Staff can remove a visit: it is
+-- canceled without an email and hidden from every list, and its change history stays so staff can restore it.
 CREATE TABLE visits_bookings (
   installation_id TEXT NOT NULL REFERENCES installations(id) ON DELETE CASCADE,
   id TEXT NOT NULL CHECK(length(id) BETWEEN 1 AND 64),
@@ -122,6 +123,7 @@ CREATE TABLE visits_bookings (
   headcount INTEGER NOT NULL CHECK(typeof(headcount) = 'integer' AND headcount BETWEEN 1 AND 100),
   note TEXT NOT NULL DEFAULT '' CHECK(length(note) <= 1000),
   status TEXT NOT NULL DEFAULT 'booked' CHECK(status IN ('booked', 'canceled')),
+  removed INTEGER NOT NULL DEFAULT 0 CHECK(removed IN (0, 1)),
   attention TEXT NOT NULL DEFAULT 'none' CHECK(attention IN ('none', 'needed', 'handled')),
   attention_reason TEXT CHECK(attention_reason IN ('window-canceled', 'window-removed', 'window-changed', 'outreach-activity-kept')),
   outreach_activity_id TEXT CHECK(outreach_activity_id IS NULL OR length(outreach_activity_id) BETWEEN 1 AND 100),
@@ -132,7 +134,8 @@ CREATE TABLE visits_bookings (
   FOREIGN KEY(installation_id, window_id) REFERENCES visits_windows(installation_id, id),
   FOREIGN KEY(installation_id, team_id) REFERENCES visits_teams(installation_id, id),
   CHECK(departure_ms > arrival_ms AND departure_ms - arrival_ms <= 90000000),
-  CHECK((attention = 'none') = (attention_reason IS NULL))
+  CHECK((attention = 'none') = (attention_reason IS NULL)),
+  CHECK(removed = 0 OR status = 'canceled')
 );
 CREATE INDEX visits_bookings_window ON visits_bookings(installation_id, window_id, status);
 CREATE INDEX visits_bookings_arrival ON visits_bookings(installation_id, arrival_ms);
@@ -146,7 +149,7 @@ WHEN NEW.revision < OLD.revision OR (NEW.revision != OLD.revision + 1 AND (
   NEW.window_id IS NOT OLD.window_id OR NEW.team_id IS NOT OLD.team_id OR NEW.contact_name IS NOT OLD.contact_name
   OR NEW.contact_email IS NOT OLD.contact_email OR NEW.contact_phone IS NOT OLD.contact_phone
   OR NEW.arrival_ms IS NOT OLD.arrival_ms OR NEW.departure_ms IS NOT OLD.departure_ms OR NEW.headcount IS NOT OLD.headcount
-  OR NEW.note IS NOT OLD.note OR NEW.status IS NOT OLD.status
+  OR NEW.note IS NOT OLD.note OR NEW.status IS NOT OLD.status OR NEW.removed IS NOT OLD.removed
 ))
 BEGIN SELECT RAISE(ABORT, 'visits_booking_revision'); END;
 
@@ -155,7 +158,7 @@ CREATE TABLE visits_booking_revisions (
   installation_id TEXT NOT NULL REFERENCES installations(id) ON DELETE CASCADE,
   booking_id TEXT NOT NULL,
   revision INTEGER NOT NULL CHECK(typeof(revision) = 'integer' AND revision >= 0 AND revision < 9007199254740991),
-  action TEXT NOT NULL CHECK(action IN ('created', 'updated', 'canceled', 'restored')),
+  action TEXT NOT NULL CHECK(action IN ('created', 'updated', 'canceled', 'restored', 'removed')),
   actor_kind TEXT NOT NULL CHECK(actor_kind IN ('guest', 'staff')),
   staff_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
   change_json TEXT NOT NULL CHECK(json_valid(change_json)),

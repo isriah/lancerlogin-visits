@@ -433,7 +433,8 @@ export function applyGuestCancel(booking: StoredBooking, revision: number): Resu
   return ok({ next, changes: diffBooking(booking, next) });
 }
 
-export const revisionActions = ["created", "updated", "canceled", "restored"] as const;
+/** `removed`: staff removed the visit, which cancels it without an email and hides it from every list. */
+export const revisionActions = ["created", "updated", "canceled", "restored", "removed"] as const;
 export type RevisionAction = (typeof revisionActions)[number];
 /** Who made a change: the guest through the emailed link, or a staff member. */
 export type RevisionActor = { readonly kind: "guest" } | { readonly kind: "staff"; readonly userId: string };

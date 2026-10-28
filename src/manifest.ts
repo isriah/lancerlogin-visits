@@ -1,8 +1,10 @@
 // Guest Visits module definition. Core validates it before composing the plugin: the ID, contract and table prefix must
 // match package.json, every table must start with the prefix, every API route lives under /admin, /public or
 // /module-setup followed by the module ID, and every table is either backed up or declared non-portable.
-// It imports nothing, so the plugin's own unit tests can read it without a Core checkout; tests/plugin-package.test.ts
-// checks that its storage declarations equal src/shared/visits-storage.ts and the migration.
+// It imports only the plugin's own import-free shared files, so the plugin's unit tests can read it without a Core checkout;
+// tests/plugin-package.test.ts checks that its storage declarations equal src/shared/visits-storage.ts and the migration.
+import { visitReportDataset } from "./shared/visits-report-fields.ts";
+
 const manifest = {
   id: "visits",
   label: "Guest Visits",
@@ -14,9 +16,18 @@ const manifest = {
   capabilities: [{ id: "visits.manage", label: "Manage Guest Visits", operator: true }],
   navigation: [{ label: "Guest Visits", path: "/visits" }],
   settings: [{ label: "Guest Visits", path: "/settings/visits" }],
-  setup: { version: 1, steps: [] },
-  jobs: [],
+  // Both steps need persisted proof: a successful test email recorded in visits_settings, and an availability window.
+  setup: {
+    version: 1,
+    steps: [
+      { id: "email", label: "Email confirmations", required: true },
+      { id: "availability", label: "First availability window", required: true },
+    ],
+  },
+  // Sends queued confirmation and update emails and Discord messages, retries failures and posts the weekly summary.
+  jobs: [{ id: "visits.notifications", interval: 300_000, label: "Guest visit notifications" }],
   discordCommands: [],
+  reportDatasets: [visitReportDataset],
   apiRoutes: [
     { path: "/admin/visits", match: "prefix", access: "workspace" },
     { path: "/public/visits", match: "prefix", access: "service" },
