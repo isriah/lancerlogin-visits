@@ -97,7 +97,7 @@ async function guestWindows(db: D1Database, now: number) {
 export async function publicCalendar(db: D1Database, deps: VisitsDeps): Promise<PublicCalendar> {
   const now = deps.now();
   const [timeZone, settings, windows] = await Promise.all([deps.timeZone(), readSettings(db, now), guestWindows(db, now)]);
-  return { timeZone, introText: settings.intro_text, horizonDays: guestHorizonDays, windows };
+  return { timeZone, hostName: settings.host_name, introText: settings.intro_text, horizonDays: guestHorizonDays, windows };
 }
 
 /** The saved team for a program and number, so the form can fill in its name. */
@@ -257,9 +257,9 @@ async function manageView(db: D1Database, deps: VisitsDeps, bookingId: string): 
     JOIN visits_windows w ON w.installation_id=b.installation_id AND w.id=b.window_id WHERE b.installation_id=? AND b.id=?`).bind(installationId, bookingId)
     .first<BookingRow & { number: string; name: string; program: TeamIdentity["program"]; window_title: string }>();
   if (!row) throw new VisitsError(403, manageTokenRefusedMessage, "token");
-  const [timeZone, windows] = await Promise.all([deps.timeZone(), guestWindows(db, now)]);
+  const [timeZone, settings, windows] = await Promise.all([deps.timeZone(), readSettings(db, now), guestWindows(db, now)]);
   return {
-    timeZone, horizonDays: guestHorizonDays,
+    timeZone, hostName: settings.host_name, horizonDays: guestHorizonDays,
     booking: {
       ...localTimes(deps.civil, timeZone, row.arrival_ms, row.departure_ms),
       id: row.id, revision: row.revision, status: row.status, team: teamIdentity(row), windowTitle: row.window_title, headcount: row.headcount, note: row.note,

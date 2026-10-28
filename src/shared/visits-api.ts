@@ -84,6 +84,8 @@ export type ApiError = { readonly error: string; readonly field?: string };
 // Public shapes.
 export type PublicCalendar = {
   readonly timeZone: string;
+  /** The host team's name from settings, such as "FRC 321 Lancers", or empty when none is set. */
+  readonly hostName: string;
   readonly introText: string;
   /** How far ahead guests may book, in days. */
   readonly horizonDays: number;
@@ -109,6 +111,8 @@ export type PublicBookingResult = { readonly booked: true; readonly emailTo: str
 export type LocalVisitTimes = { readonly date: string; readonly arrival: string; readonly departure: string; readonly arrivalMs: number; readonly departureMs: number };
 export type ManageView = {
   readonly timeZone: string;
+  /** The host team's name from settings, or empty when none is set. */
+  readonly hostName: string;
   readonly booking: LocalVisitTimes & {
     readonly id: string;
     readonly revision: number;
@@ -218,6 +222,11 @@ export type VisitsStatus = {
 };
 export type VisitsSettings = {
   readonly revision: number;
+  /**
+   * The host team's name as guests read it, for example "FRC 321 Lancers", at most 80 characters. Guest emails and the
+   * guest page use it; empty means they say "our team".
+   */
+  readonly hostName: string;
   readonly introText: string;
   readonly replyTo: string;
   readonly testEmailSentMs: number | null;

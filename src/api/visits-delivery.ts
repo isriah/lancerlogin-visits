@@ -12,8 +12,8 @@ import {
 } from "../shared/visits-notifications.ts";
 import { formatWeeklySummary, parseSummaryPayload, reportTimes, selectSummaryVisits, summaryDisposition, weeklySummaryDecision, type SummaryDecision, type SummaryVisit } from "../shared/visits-summary.ts";
 import {
-  cancellationEmail, confirmationEmail, discordBookedMessage, discordCanceledMessage, discordChangedMessage, discordMessageBody, updateEmail, visitMessageDetails,
-  type EmailContent,
+  cancellationEmail, confirmationEmail, discordBookedMessage, discordCanceledMessage, discordChangedMessage, discordMessageBody, hostNameText, updateEmail,
+  visitMessageDetails, type EmailContent,
 } from "../shared/visits-text.ts";
 import { generateManageToken, hashManageToken, manageLink } from "../shared/visits-tokens.ts";
 import { addDays, dayMs, localMoment } from "../shared/visits-time.ts";
@@ -22,8 +22,6 @@ import { emailCappedMessage } from "./visits-queries.ts";
 import { readSettings } from "./visits-settings.ts";
 import { installationId, iso, rows, teamIdentity as identityOf, type BookingRow, type VisitsDeps, type VisitsOutreachClient } from "./visits-runtime.ts";
 
-/** Who guests visit, in email text: "Your visit to our team is booked." Core keeps the organization's name. */
-export const guestHostName = "our team";
 /** Notifications one job pass sends at most. */
 export const notificationsPerPass = 20;
 /** How long a guest submission key keeps a repeated submission from booking twice. */
@@ -120,9 +118,10 @@ function superseded(kind: string, booking: MessageBooking | null): string | null
   return null;
 }
 
-async function details(deps: VisitsDeps, booking: MessageBooking) {
+/** Message details for a booking. Guests visit the host team named in settings, or "our team" when none is set. */
+async function details(deps: VisitsDeps, booking: MessageBooking, hostName: string) {
   return visitMessageDetails(deps.civil, await deps.timeZone(), {
-    hostName: guestHostName, team: identityOf(booking),
+    hostName: hostNameText(hostName), team: identityOf(booking),
     booking: { contactName: booking.contact_name, contactPhone: booking.contact_phone, arrivalMs: booking.arrival_ms, departureMs: booking.departure_ms, headcount: booking.headcount, note: booking.note },
     windowTitle: booking.window_title,
   });
@@ -152,7 +151,7 @@ async function deliverEmail(db: D1Database, deps: VisitsDeps, row: NotificationR
   try { link = manageLink(payload.origin, token); } catch (error) { await release(); return { status: "retry", error: errorText(error), permanent: true }; }
   await db.prepare("INSERT INTO visits_manage_tokens(installation_id,token_hash,booking_id,issued_ms,expires_ms) VALUES(?,?,?,?,?)").bind(installationId, tokenHash, booking.id, now, booking.departure_ms).run();
   const forget = () => db.prepare("DELETE FROM visits_manage_tokens WHERE installation_id=? AND token_hash=?").bind(installationId, tokenHash).run();
-  const message = await details(deps, booking);
+  const message = await details(deps, booking, settings.host_name);
   const content: EmailContent = row.kind === "changed" ? updateEmail(message, link, payload.changes ?? [])
     : row.kind === "canceled" ? cancellationEmail(message, link) : confirmationEmail(message, link);
   try {
@@ -195,7 +194,7 @@ async function deliverDiscord(db: D1Database, deps: VisitsDeps, row: Notificatio
     const booking = await messageBooking(db, row.booking_id);
     const gone = superseded(row.kind, booking);
     if (gone || !booking) return { status: "skipped", note: gone ?? "This visit no longer exists" };
-    const message = await details(deps, booking);
+    const message = await details(deps, booking, settings.host_name);
     content = row.kind === "changed" ? discordChangedMessage(message, parsePayload(row.payload_json).changes ?? [])
       : row.kind === "canceled" ? discordCanceledMessage(message) : discordBookedMessage(message);
   }

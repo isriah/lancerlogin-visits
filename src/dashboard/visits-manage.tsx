@@ -45,7 +45,7 @@ export function GuestManagePage({ navigate }: { navigate: DashboardNavigate }) {
 
   const bookLink = <p><a href="/visit" onClick={inPageLink(navigate, "/visit")}>See open times and book a visit</a></p>;
   return <main id="dashboard-content" className="visits-public-page">
-    <header className="visits-public-intro"><p className="kicker">Guest Visits</p><h1>Your visit</h1></header>
+    <header className="visits-public-intro"><p className="kicker">Guest Visits</p><h1>{load.state === "ready" && load.view.hostName ? `Your visit to ${load.view.hostName}` : "Your visit"}</h1></header>
     {load.state === "loading" && <p className="ui-status settings-notice" role="status">Loading your visit...</p>}
     {load.state === "invalid" && <section className="ui-card visits-public-message" aria-label="Link problem">
       <p>This link is incomplete. Open the link in your most recent Guest Visits email again, or copy the whole link into the address bar.</p>{bookLink}

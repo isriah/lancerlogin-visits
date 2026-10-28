@@ -21,6 +21,18 @@ export function escapeDiscord(text: string): string {
     .replace(/:\/\//g, ":\u200b//");
 }
 
+/** The longest host team name settings accept. */
+export const maximumHostNameLength = 80;
+/** The longest guest page intro settings accept. */
+export const maximumIntroTextLength = 2000;
+/** Who guests visit when settings name no host team: "Your visit to our team is booked." */
+export const defaultHostName = "our team";
+
+/** The host team's name for guest text: the name from settings on one line, or "our team" when none is set. */
+export function hostNameText(hostName: string | null | undefined): string {
+  return singleLine(hostName ?? "") || defaultHostName;
+}
+
 /** Everything a guest message says about one visit, in local terms. */
 export type VisitMessageDetails = {
   /** Who the guests are visiting, for example "FRC 321". */

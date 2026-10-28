@@ -217,11 +217,13 @@ test("roles and origins: staff routes for Admins and Operators, settings for Adm
 test("Admins change settings with the current revision; Discord needs a channel; the guest page shows the intro", async () => {
   const harness = visitsHarness();
   const initial = (await harness.call("GET", "/admin/visits/settings")).body;
-  assert.deepEqual(initial, { revision: 0, introText: "", replyTo: "", testEmailSentMs: null, discordEnabled: false, discordChannelId: "", weeklySummaryEnabled: true, weeklySummaryWeekday: 1, weeklySummaryTime: "12:00" });
+  assert.deepEqual(initial, { revision: 0, hostName: "", introText: "", replyTo: "", testEmailSentMs: null, discordEnabled: false, discordChannelId: "", weeklySummaryEnabled: true, weeklySummaryWeekday: 1, weeklySummaryTime: "12:00" });
   assert.equal((await harness.call("PUT", "/admin/visits/settings", { body: { revision: 0, discordEnabled: true } })).body.field, "discordChannelId");
   assert.equal((await harness.call("PUT", "/admin/visits/settings", { body: { revision: 0, replyTo: "nope" } })).body.field, "replyTo");
   assert.equal((await harness.call("PUT", "/admin/visits/settings", { body: { revision: 0, weeklySummaryTime: "25:00" } })).body.field, "weeklySummaryTime");
   assert.equal((await harness.call("PUT", "/admin/visits/settings", { body: { revision: 0, color: "red" } })).body.field, "color");
+  assert.equal((await harness.call("PUT", "/admin/visits/settings", { body: { revision: 0, hostName: "x".repeat(81) } })).body.field, "hostName");
+  assert.equal((await harness.call("PUT", "/admin/visits/settings", { body: { revision: 0, hostName: 321 } })).body.field, "hostName");
   const saved = await harness.call("PUT", "/admin/visits/settings", { body: { revision: 0, introText: "Welcome,\r\nguests!", replyTo: " coach@example.org ", discordEnabled: true, discordChannelId: "123456789012345678" } });
   assert.equal(saved.status, 200);
   assert.deepEqual({ ...saved.body }, { ...initial, revision: 1, introText: "Welcome,\nguests!", replyTo: "coach@example.org", discordEnabled: true, discordChannelId: "123456789012345678" });
@@ -281,4 +283,33 @@ test("the visits.bookings report lists visits by local date within the report pe
   assert.deepEqual([values[visitReportFields.arrival]!.text, values[visitReportFields.departure]!.text, values[visitReportFields.status]!.text, values[visitReportFields.outreach]!.text], ["18:00", "20:30", "Canceled", "No"]);
   assert.equal(visitReportLabel(records[1]!), "FLL Challenge 7 Lucky on 2026-11-04");
   assert.deepEqual(manifest.reportDatasets.map((dataset) => [dataset.id, dataset.capability, dataset.rowIdentity, dataset.filters]), [["visits.bookings", "visits.manage", "visits.booking.id", ["period"]]]);
+});
+
+test("the host team's name from settings heads the guest page and names the host in guest emails", async () => {
+  const harness = visitsHarness();
+  await withShopSeries(harness);
+  // Without a name, guests visit "our team".
+  const first = await book(harness);
+  assert.equal(harness.email.sent[0]!.subject, "Your visit to our team on Monday, November 2");
+  assert.equal((await harness.call("GET", "/public/visits/calendar", { role: null })).body.hostName, "");
+  const saved = await harness.call("PUT", "/admin/visits/settings", { body: { revision: 0, hostName: "  FRC 321\r\nLancers " } });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.body.hostName, "FRC 321 Lancers");
+  assert.equal((await harness.call("GET", "/public/visits/calendar", { role: null })).body.hostName, "FRC 321 Lancers");
+  const token = FakeEmail.token(harness.email.sent[0]!);
+  assert.equal((await harness.call("POST", "/public/visits/manage", { body: { token }, role: null })).body.hostName, "FRC 321 Lancers");
+  // Every later email names the host in its subject and text, HTML-escaped in its HTML.
+  await harness.call("PUT", `/admin/visits/bookings/${first.id}`, { body: { revision: 0, headcount: 14 } });
+  const update = harness.email.sent.at(-1)!;
+  assert.equal(update.subject, "Updated: your visit to FRC 321 Lancers on Monday, November 2");
+  assert.match(update.text!, /Your visit to FRC 321 Lancers was changed \(headcount\)/);
+  await harness.call("PUT", "/admin/visits/settings", { body: { revision: 1, hostName: "Lancers <321> & friends" } });
+  await harness.call("POST", `/admin/visits/bookings/${first.id}/cancel`, { body: { revision: 1 } });
+  const canceled = harness.email.sent.at(-1)!;
+  assert.equal(canceled.subject, "Canceled: your visit to Lancers <321> & friends on Monday, November 2");
+  assert.match(canceled.html!, /Your visit to Lancers &lt;321&gt; &amp; friends is canceled/);
+  // Clearing the name goes back to "our team".
+  await harness.call("PUT", "/admin/visits/settings", { body: { revision: 2, hostName: "" } });
+  await book(harness, { teamNumber: "8", teamName: "Eights", contactEmail: "eight@example.org" });
+  assert.equal(harness.email.sent.at(-1)!.subject, "Your visit to our team on Monday, November 2");
 });

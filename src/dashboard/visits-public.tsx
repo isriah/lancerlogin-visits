@@ -152,7 +152,7 @@ function GuestBookingPage() {
         <h1 id="visits-receipt-title" ref={receiptHeading} tabIndex={-1}>Visit booked</h1>
         <p><strong>{booked.team}</strong> is coming on {formatShortDate(visit.date)}, {formatTimeRange(visit.arrival, visit.departure)}{visit.windowTitle ? ` (${visit.windowTitle})` : ""}.</p>
         <p>A confirmation email is on its way to <strong className="visits-break">{booked.result.emailTo}</strong>. The link in that email is the only way to change or cancel this visit, so keep the email.</p>
-        <p className="field-help">No email after a few minutes? Check your spam folder, or ask the team you are visiting to resend it.</p>
+        <p className="field-help">No email after a few minutes? Check your spam folder, or ask {calendar?.hostName || "the team you are visiting"} to resend it.</p>
         <div className="module-actions"><button className="ui-button ui-button--primary" type="button" onClick={backToTimes}>Back to open times</button></div>
       </section>
     </main>;
@@ -161,7 +161,7 @@ function GuestBookingPage() {
   return <main id="dashboard-content" className="visits-public-page">
     <header className="visits-public-intro">
       <p className="kicker">Guest Visits</p>
-      <h1>Book a team visit</h1>
+      <h1>{calendar?.hostName ? `Book a visit with ${calendar.hostName}` : "Book a team visit"}</h1>
       {calendar?.introText && <p className="visits-intro-text">{calendar.introText}</p>}
       {calendar && <p className="field-help">Times are in the {calendar.timeZone.replace(/_/g, " ")} time zone.</p>}
     </header>

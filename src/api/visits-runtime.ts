@@ -157,7 +157,7 @@ export async function rows<T>(statement: D1Statement): Promise<T[]> {
 // Row shapes and their conversions.
 
 export type SettingsRow = {
-  intro_text: string; reply_to: string; test_email_sent_at: string | null; discord_enabled: number; discord_channel_id: string | null;
+  host_name: string; intro_text: string; reply_to: string; test_email_sent_at: string | null; discord_enabled: number; discord_channel_id: string | null;
   weekly_summary_enabled: number; weekly_summary_weekday: number; weekly_summary_time: string; weekly_summary_since_ms: number; revision: number;
 };
 
