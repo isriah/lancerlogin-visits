@@ -19,11 +19,13 @@ function database() {
   return db;
 }
 
-function context(db: ReturnType<typeof database>, method: string, path: string, body?: unknown) {
+type Modules = { interface(id: string, version: number): Promise<unknown> };
+
+function context(db: ReturnType<typeof database>, method: string, path: string, body?: unknown, modules?: Modules) {
   const url = new URL(path, "https://api.example.org");
   const request = new Request(url, { method, headers: { origin: dashboardOrigin, ...(body === undefined ? {} : { "content-type": "application/json" }) }, body: body === undefined ? undefined : JSON.stringify(body) });
   return {
-    request, url, env: {}, db: db as never, services: { email: new FakeEmail(), discord: new FakeDiscord(), googleCalendar: {} as never, credentials: {} as never },
+    request, url, env: {}, db: db as never, services: { email: new FakeEmail(), discord: new FakeDiscord(), googleCalendar: {} as never, credentials: {} as never, ...(modules ? { modules } : {}) },
     requireRole: async () => ({ userId: "user-1", role: "admin" as const }),
     json: async () => JSON.parse(await request.clone().text()), body: async () => method === "GET" ? undefined : JSON.parse(await request.text()),
     respond: (value: unknown, status = 200) => Response.json(value, { status }),
@@ -63,4 +65,31 @@ test("routes, the job and the report run through Core's context with the install
   const rows = await api.reports!["visits.bookings"]!(db as never, definition as never, { to: "2027-12-31", today: "2026-10-28" });
   assert.deepEqual(rows.map((row) => [row.id, row.label, row.href, Object.values(row.cells).map((cell) => cell.text)]), [["booking-1", "FRC 321 Lancers on 2027-11-01", "/visits", ["2027-11-01", "Lancers", "60"]]]);
   assert.deepEqual(await api.reports!["visits.bookings"]!(db as never, definition as never, { from: "2027-11-02", to: "2027-12-31", today: "2026-10-28" }), []);
+});
+
+test("Outreach is reached through services.modules with the declared interface; without a signed-in user only a grant counts", async () => {
+  const db = database();
+  await db.batch(api.freshEnable!(db as never, { installationId: "primary", now: "2026-10-28T15:00:00.000Z" }) as never);
+  const asked: unknown[][] = [];
+  let available: "client" | "none" | "throws" = "client";
+  const modules: Modules = {
+    async interface(id, version) {
+      asked.push([id, version]);
+      if (available === "throws") throw new Error("Core could not read module state");
+      return available === "client" ? { call: async () => ({ teams: [] }) } : undefined;
+    },
+  };
+  const status = async () => (await (await api.routes!["/admin/visits"]!(context(db, "GET", "/admin/visits/status", undefined, modules) as never))!.json() as { outreach: unknown }).outreach;
+  const job = () => api.jobs!["visits.notifications"]!({ db: db as never, env: {}, services: context(db, "GET", "/", undefined, modules).services as never }) as Promise<{ outreachGranted: boolean }>;
+  // A workspace request's client may be the signed-in Admin's own Outreach access, so it alone is no grant.
+  assert.deepEqual(await status(), { available: true, granted: false });
+  assert.equal((await job()).outreachGranted, true);
+  assert.deepEqual(await status(), { available: true, granted: true });
+  assert.ok(asked.every(([id, version]) => id === "hour-tracking.team-support" && version === 1));
+  available = "throws";
+  assert.equal((await job()).outreachGranted, false, "a failed lookup is no client");
+  available = "none";
+  assert.deepEqual(await status(), { available: false, granted: false });
+  // Without services.modules (an older Core), Outreach is simply unavailable.
+  assert.deepEqual((await (await api.routes!["/admin/visits"]!(context(db, "GET", "/admin/visits/status") as never))!.json() as { outreach: unknown }).outreach, { available: false, granted: false });
 });
