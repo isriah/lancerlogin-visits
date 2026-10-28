@@ -277,6 +277,11 @@ test("Record in Outreach records at most 50 visits at a time; with a grant the r
   await harness.job();
   assert.equal(harness.count("SELECT COUNT(*) AS n FROM visits_bookings WHERE outreach_activity_id IS NOT NULL"), 52);
   assert.equal(harness.outreach.activities.length, 52);
+  // Visits skipped without an Outreach call do not use up the limit.
+  harness.outreach.granted = false;
+  const again = await harness.call("POST", "/admin/visits/outreach", { body: { bookingIds: ["missing-visit", ...ids.slice(0, 50)] } });
+  assert.deepEqual(again.body.results.map((result: { state: string }) => result.state), ["skipped", ...Array(50).fill("recorded")]);
+  assert.equal(harness.outreach.activities.length, 52, "repeating changes nothing in Outreach");
 });
 
 test("revoking the grant: nothing new is queued, waiting records stay until access returns, and Visits keeps working", async () => {

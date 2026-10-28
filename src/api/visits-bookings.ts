@@ -561,14 +561,17 @@ export async function recordOutreach(db: D1Database, deps: VisitsDeps, value: un
   const access = await outreachAccess(db, deps, now);
   if (!access.client) throw new VisitsError(409, outreachAccessMessage);
   const results: OutreachRecordResult[] = [];
-  for (const [index, bookingId] of ids.entries()) {
+  // Only visits that are attempted count toward the limit; skipped ones cost no Outreach call.
+  let attempted = 0;
+  for (const bookingId of ids) {
     const booking = await db.prepare("SELECT b.status,b.removed,t.program FROM visits_bookings b JOIN visits_teams t ON t.installation_id=b.installation_id AND t.id=b.team_id WHERE b.installation_id=? AND b.id=?")
       .bind(installationId, bookingId).first<{ status: "booked" | "canceled"; removed: number; program: VisitProgram }>();
     const refusal = !booking ? "This visit was not found" : booking.removed === 1 ? "This visit was removed" : booking.status !== "booked" ? "Canceled visits are not recorded in Outreach"
       : outreachProgram(booking.program) === null ? "Outreach does not support teams with program Other" : null;
     if (refusal) {
       results.push({ bookingId, state: "skipped", activityId: null, error: refusal });
-    } else if (index < maximumOutreachRecordBatch) {
+    } else if (attempted < maximumOutreachRecordBatch) {
+      attempted += 1;
       results.push({ bookingId, ...await recordOutreachNow(db, deps, access.client, bookingId, { final: !access.granted }) });
     } else if (access.granted) {
       await queueOutreachStatement(db, bookingId, now).run();
