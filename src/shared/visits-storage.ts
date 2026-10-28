@@ -8,7 +8,7 @@ export const moduleId = "visits";
 
 /** Portable tables in parent-first restore order with every column, as backups export them. */
 export const visitsBackupColumns = {
-  visits_settings: ["installation_id", "intro_text", "reply_to", "test_email_sent_at", "discord_enabled", "discord_channel_id", "weekly_summary_enabled", "weekly_summary_weekday", "weekly_summary_time", "weekly_summary_since_ms", "outreach_granted", "outreach_checked_ms", "revision", "updated_at"],
+  visits_settings: ["installation_id", "host_name", "intro_text", "reply_to", "test_email_sent_at", "discord_enabled", "discord_channel_id", "weekly_summary_enabled", "weekly_summary_weekday", "weekly_summary_time", "weekly_summary_since_ms", "outreach_granted", "outreach_checked_ms", "revision", "updated_at"],
   visits_availability_series: ["installation_id", "id", "weekday_mask", "start_time", "end_time", "first_date", "last_date", "title", "revision", "created_at", "updated_at"],
   visits_windows: ["installation_id", "id", "series_id", "start_ms", "end_ms", "title", "status", "cancel_reason", "edited", "revision", "created_at", "updated_at"],
   visits_teams: ["installation_id", "id", "number", "name", "program", "outreach_team_id", "archived", "revision", "created_at", "updated_at"],

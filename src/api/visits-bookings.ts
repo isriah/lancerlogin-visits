@@ -97,7 +97,7 @@ async function guestWindows(db: D1Database, now: number) {
 export async function publicCalendar(db: D1Database, deps: VisitsDeps): Promise<PublicCalendar> {
   const now = deps.now();
   const [timeZone, settings, windows] = await Promise.all([deps.timeZone(), readSettings(db, now), guestWindows(db, now)]);
-  return { timeZone, introText: settings.intro_text, horizonDays: guestHorizonDays, windows };
+  return { timeZone, hostName: settings.host_name, introText: settings.intro_text, horizonDays: guestHorizonDays, windows };
 }
 
 /** The saved team for a program and number, so the form can fill in its name. */
@@ -257,9 +257,9 @@ async function manageView(db: D1Database, deps: VisitsDeps, bookingId: string): 
     JOIN visits_windows w ON w.installation_id=b.installation_id AND w.id=b.window_id WHERE b.installation_id=? AND b.id=?`).bind(installationId, bookingId)
     .first<BookingRow & { number: string; name: string; program: TeamIdentity["program"]; window_title: string }>();
   if (!row) throw new VisitsError(403, manageTokenRefusedMessage, "token");
-  const [timeZone, windows] = await Promise.all([deps.timeZone(), guestWindows(db, now)]);
+  const [timeZone, settings, windows] = await Promise.all([deps.timeZone(), readSettings(db, now), guestWindows(db, now)]);
   return {
-    timeZone, horizonDays: guestHorizonDays,
+    timeZone, hostName: settings.host_name, horizonDays: guestHorizonDays,
     booking: {
       ...localTimes(deps.civil, timeZone, row.arrival_ms, row.departure_ms),
       id: row.id, revision: row.revision, status: row.status, team: teamIdentity(row), windowTitle: row.window_title, headcount: row.headcount, note: row.note,
@@ -449,8 +449,8 @@ export async function staffResend(db: D1Database, deps: VisitsDeps, id: string, 
 }
 
 /**
- * Staff contacted the team: the visit's attention is handled, and its failed emails and Outreach records no longer need
- * attention. A handled Outreach record still shows as failed until the visit is recorded.
+ * Staff contacted the team: the visit's attention is handled, and its failed or restore-paused emails and Outreach records
+ * no longer need attention. A handled Outreach record still shows as failed until the visit is recorded.
  */
 export async function staffHandled(db: D1Database, deps: VisitsDeps, id: string): Promise<RouteResult> {
   const booking = await requireBooking(db, id);
@@ -458,8 +458,8 @@ export async function staffHandled(db: D1Database, deps: VisitsDeps, id: string)
   const at = iso(deps.now());
   await db.batch([
     db.prepare("UPDATE visits_bookings SET attention=?,attention_reason=?,updated_at=? WHERE installation_id=? AND id=?").bind(attention.state, attention.reason, at, installationId, id),
-    db.prepare("UPDATE visits_notifications SET status='skipped',updated_at=? WHERE installation_id=? AND booking_id=? AND channel='email' AND status='failed'").bind(at, installationId, id),
-    db.prepare("UPDATE visits_notifications SET status='skipped',payload_json=json_set(payload_json,'$.handled',1),updated_at=? WHERE installation_id=? AND booking_id=? AND channel='outreach' AND status='failed'").bind(at, installationId, id),
+    db.prepare("UPDATE visits_notifications SET status='skipped',updated_at=? WHERE installation_id=? AND booking_id=? AND channel='email' AND status IN ('failed','paused')").bind(at, installationId, id),
+    db.prepare("UPDATE visits_notifications SET status='skipped',payload_json=json_set(payload_json,'$.handled',1),updated_at=? WHERE installation_id=? AND booking_id=? AND channel='outreach' AND status IN ('failed','paused')").bind(at, installationId, id),
   ]);
   return ok(await detail(db, deps, id));
 }
@@ -561,14 +561,17 @@ export async function recordOutreach(db: D1Database, deps: VisitsDeps, value: un
   const access = await outreachAccess(db, deps, now);
   if (!access.client) throw new VisitsError(409, outreachAccessMessage);
   const results: OutreachRecordResult[] = [];
-  for (const [index, bookingId] of ids.entries()) {
+  // Only visits that are attempted count toward the limit; skipped ones cost no Outreach call.
+  let attempted = 0;
+  for (const bookingId of ids) {
     const booking = await db.prepare("SELECT b.status,b.removed,t.program FROM visits_bookings b JOIN visits_teams t ON t.installation_id=b.installation_id AND t.id=b.team_id WHERE b.installation_id=? AND b.id=?")
       .bind(installationId, bookingId).first<{ status: "booked" | "canceled"; removed: number; program: VisitProgram }>();
     const refusal = !booking ? "This visit was not found" : booking.removed === 1 ? "This visit was removed" : booking.status !== "booked" ? "Canceled visits are not recorded in Outreach"
       : outreachProgram(booking.program) === null ? "Outreach does not support teams with program Other" : null;
     if (refusal) {
       results.push({ bookingId, state: "skipped", activityId: null, error: refusal });
-    } else if (index < maximumOutreachRecordBatch) {
+    } else if (attempted < maximumOutreachRecordBatch) {
+      attempted += 1;
       results.push({ bookingId, ...await recordOutreachNow(db, deps, access.client, bookingId, { final: !access.granted }) });
     } else if (access.granted) {
       await queueOutreachStatement(db, bookingId, now).run();

@@ -4,15 +4,14 @@ import type { D1Database } from "@lancerlogin/module-sdk/api";
 import type { VisitsSettings, VisitsSetupStatus, VisitsStatus } from "../shared/visits-api.ts";
 import { parseEmail } from "../shared/visits-booking.ts";
 import { dailyEmailCap, emailAddressHash, emailLimitDay, releaseEmailSql, reserveEmailSql } from "../shared/visits-limits.ts";
-import { escapeHtml } from "../shared/visits-text.ts";
+import { escapeHtml, maximumHostNameLength, maximumIntroTextLength } from "../shared/visits-text.ts";
 import { defaultSettingsSql } from "../shared/visits-storage.ts";
-import { isLocalTime, multiLine } from "../shared/visits-time.ts";
+import { isLocalTime, multiLine, singleLine } from "../shared/visits-time.ts";
 import { outreachAccess } from "./visits-outreach.ts";
 import { attentionCountSql } from "./visits-queries.ts";
 import { installationId, iso, objectBody, ok, onlyFields, revisionOf, stale, VisitsError, type RouteResult, type SettingsRow, type VisitsDeps } from "./visits-runtime.ts";
 
-export const maximumIntroTextLength = 2000;
-const settingsColumns = "intro_text,reply_to,test_email_sent_at,discord_enabled,discord_channel_id,weekly_summary_enabled,weekly_summary_weekday,weekly_summary_time,weekly_summary_since_ms,revision";
+const settingsColumns = "host_name,intro_text,reply_to,test_email_sent_at,discord_enabled,discord_channel_id,weekly_summary_enabled,weekly_summary_weekday,weekly_summary_time,weekly_summary_since_ms,revision";
 
 /** The settings row, created with its defaults if first enablement somehow left none. */
 export async function readSettings(db: D1Database, now: number): Promise<SettingsRow> {
@@ -27,13 +26,13 @@ export async function readSettings(db: D1Database, now: number): Promise<Setting
 
 export function visitsSettings(row: SettingsRow): VisitsSettings {
   return {
-    revision: row.revision, introText: row.intro_text, replyTo: row.reply_to, testEmailSentMs: row.test_email_sent_at ? Date.parse(row.test_email_sent_at) : null,
+    revision: row.revision, hostName: row.host_name, introText: row.intro_text, replyTo: row.reply_to, testEmailSentMs: row.test_email_sent_at ? Date.parse(row.test_email_sent_at) : null,
     discordEnabled: row.discord_enabled === 1, discordChannelId: row.discord_channel_id ?? "", weeklySummaryEnabled: row.weekly_summary_enabled === 1,
     weeklySummaryWeekday: row.weekly_summary_weekday, weeklySummaryTime: row.weekly_summary_time,
   };
 }
 
-const settingsFields = ["revision", "introText", "replyTo", "discordEnabled", "discordChannelId", "weeklySummaryEnabled", "weeklySummaryWeekday", "weeklySummaryTime"];
+const settingsFields = ["revision", "hostName", "introText", "replyTo", "discordEnabled", "discordChannelId", "weeklySummaryEnabled", "weeklySummaryWeekday", "weeklySummaryTime"];
 
 function flag(value: unknown, field: string): boolean {
   if (typeof value !== "boolean") throw new VisitsError(400, "Choose on or off", field);
@@ -45,6 +44,11 @@ export function parseSettingsUpdate(value: unknown, current: VisitsSettings): Om
   const input = objectBody(value);
   onlyFields(input, settingsFields);
   const next: { -readonly [Key in keyof VisitsSettings]: VisitsSettings[Key] } = { ...current, revision: revisionOf(input.revision) };
+  if ("hostName" in input) {
+    if (typeof input.hostName !== "string") throw new VisitsError(400, "Enter your team's name as text", "hostName");
+    next.hostName = singleLine(input.hostName);
+    if (next.hostName.length > maximumHostNameLength) throw new VisitsError(400, `Your team's name is at most ${maximumHostNameLength} characters`, "hostName");
+  }
   if ("introText" in input) {
     if (typeof input.introText !== "string") throw new VisitsError(400, "Enter the introduction as text", "introText");
     next.introText = multiLine(input.introText);
@@ -88,9 +92,9 @@ export async function updateSettings(db: D1Database, deps: VisitsDeps, value: un
   const next = parseSettingsUpdate(value, current);
   const restart = (next.weeklySummaryEnabled && !current.weeklySummaryEnabled) || (next.discordEnabled && !current.discordEnabled)
     || next.weeklySummaryWeekday !== current.weeklySummaryWeekday || next.weeklySummaryTime !== current.weeklySummaryTime;
-  const result = await db.prepare(`UPDATE visits_settings SET intro_text=?,reply_to=?,discord_enabled=?,discord_channel_id=?,weekly_summary_enabled=?,weekly_summary_weekday=?,weekly_summary_time=?,
+  const result = await db.prepare(`UPDATE visits_settings SET host_name=?,intro_text=?,reply_to=?,discord_enabled=?,discord_channel_id=?,weekly_summary_enabled=?,weekly_summary_weekday=?,weekly_summary_time=?,
     weekly_summary_since_ms=CASE WHEN ? THEN ? ELSE weekly_summary_since_ms END,revision=revision+1,updated_at=? WHERE installation_id=? AND revision=?`)
-    .bind(next.introText, next.replyTo, next.discordEnabled ? 1 : 0, next.discordChannelId || null, next.weeklySummaryEnabled ? 1 : 0, next.weeklySummaryWeekday, next.weeklySummaryTime,
+    .bind(next.hostName, next.introText, next.replyTo, next.discordEnabled ? 1 : 0, next.discordChannelId || null, next.weeklySummaryEnabled ? 1 : 0, next.weeklySummaryWeekday, next.weeklySummaryTime,
       restart ? 1 : 0, now, iso(now), installationId, next.revision).run();
   if (result.meta?.changes !== 1) throw stale("Guest Visits settings");
   return ok(visitsSettings(await readSettings(db, now)));

@@ -6,6 +6,9 @@
 -- One settings row per installation, created on first enablement.
 CREATE TABLE visits_settings (
   installation_id TEXT PRIMARY KEY NOT NULL REFERENCES installations(id) ON DELETE CASCADE,
+  -- The host team's name as guests read it, for example "FRC 321 Lancers". Empty means guest pages and emails say "our
+  -- team", since plugins cannot read the organization's name.
+  host_name TEXT NOT NULL DEFAULT '' CHECK(length(host_name) <= 80),
   intro_text TEXT NOT NULL DEFAULT '' CHECK(length(intro_text) <= 2000),
   reply_to TEXT NOT NULL DEFAULT '' CHECK(reply_to = '' OR (length(reply_to) BETWEEN 3 AND 254 AND instr(reply_to, '@') > 1)),
   test_email_sent_at TEXT,

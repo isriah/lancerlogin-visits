@@ -119,9 +119,10 @@ test("availability drafts become series or window requests checked by the Worker
 });
 
 test("settings updates carry only changed fields with the revision", () => {
-  const saved: VisitsSettings = { revision: 2, introText: "Welcome", replyTo: "", testEmailSentMs: null, discordEnabled: false, discordChannelId: "", weeklySummaryEnabled: true, weeklySummaryWeekday: 1, weeklySummaryTime: "12:00" };
+  const saved: VisitsSettings = { revision: 2, hostName: "FRC 321 Lancers", introText: "Welcome", replyTo: "", testEmailSentMs: null, discordEnabled: false, discordChannelId: "", weeklySummaryEnabled: true, weeklySummaryWeekday: 1, weeklySummaryTime: "12:00" };
   assert.equal(settingsUpdate(saved, saved, ["introText", "replyTo"]), null);
   assert.deepEqual(settingsUpdate(saved, { ...saved, introText: "Hello", discordEnabled: true }, ["introText", "replyTo"]), { revision: 2, introText: "Hello" });
+  assert.deepEqual(settingsUpdate(saved, { ...saved, hostName: "", introText: "Welcome" }, ["hostName", "introText"]), { revision: 2, hostName: "" });
   assert.deepEqual(settingsUpdate(saved, { ...saved, discordEnabled: true, discordChannelId: "123456789012345678", weeklySummaryWeekday: 5 }, ["discordEnabled", "discordChannelId", "weeklySummaryEnabled", "weeklySummaryWeekday", "weeklySummaryTime"]), {
     revision: 2, discordEnabled: true, discordChannelId: "123456789012345678", weeklySummaryWeekday: 5,
   });

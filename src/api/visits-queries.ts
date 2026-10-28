@@ -19,10 +19,10 @@ const outreachStateColumns = [["status", "n.status"], ["error", "n.last_error"],
 
 /**
  * What Needs attention lists: visits whose window was canceled, removed or changed, or that were recorded in Outreach
- * before they were canceled or moved (until staff handle them), visits whose latest email failed or waits under the
- * daily cap, and visits whose latest Outreach record failed.
+ * before they were canceled or moved (until staff handle them), visits whose latest email failed, waits under the daily
+ * cap or was paused by a restore, and visits whose latest Outreach record failed or was paused by a restore.
  */
-const attentionPredicate = `(attention='needed' OR email_status='failed' OR (email_status='pending' AND email_error='${emailCappedMessage}') OR outreach_status='failed')`;
+const attentionPredicate = `(attention='needed' OR email_status IN ('failed','paused') OR (email_status='pending' AND email_error='${emailCappedMessage}') OR outreach_status IN ('failed','paused'))`;
 
 export const attentionCountSql = `SELECT COUNT(*) AS count FROM (SELECT b.attention,${emailStateColumns},${outreachStateColumns} FROM visits_bookings b WHERE b.installation_id=? AND b.removed=0) WHERE ${attentionPredicate}`;
 
@@ -41,13 +41,15 @@ export function emailState(status: string | null, error: string | null): EmailSt
   // A failed email staff marked handled is skipped: it still failed, but no longer needs attention.
   if (status === "failed" || status === "skipped") return "failed";
   if (status === "pending" && error === emailCappedMessage) return "capped";
+  // A restore paused it; nothing sends it until staff resend the confirmation.
+  if (status === "paused") return "paused";
   return "pending";
 }
 
 export function staffBooking(civil: CivilTime, timeZone: string, row: StaffBookingRow): StaffBooking {
   return {
     ...localTimes(civil, timeZone, row.arrival_ms, row.departure_ms),
-    id: row.id, revision: row.revision, status: row.status,
+    id: row.id, revision: row.revision, status: row.status, removed: row.removed === 1,
     team: { id: row.team_id, number: row.team_number, name: row.team_name, program: row.team_program },
     windowId: row.window_id, windowTitle: row.window_title, headcount: row.headcount, note: row.note,
     contactName: row.contact_name, contactEmail: row.contact_email, contactPhone: row.contact_phone,
@@ -57,15 +59,18 @@ export function staffBooking(civil: CivilTime, timeZone: string, row: StaffBooki
   };
 }
 
-export type BookingScope = "upcoming" | "past" | "attention";
+export const bookingScopes = ["upcoming", "past", "removed", "attention"] as const;
+export type BookingScope = (typeof bookingScopes)[number];
 
-/** Staff booking lists. Removed visits are never listed. */
+/** Staff booking lists. Removed visits are listed only under `removed`, most recent visit first. */
 export async function listStaffBookings(db: D1Database, civil: CivilTime, timeZone: string, scope: BookingScope, now: number): Promise<StaffBooking[]> {
   const statement = scope === "upcoming"
     ? db.prepare(`${staffBookingSelect} WHERE b.installation_id=? AND b.removed=0 AND b.departure_ms>? ORDER BY b.arrival_ms,b.departure_ms,b.id LIMIT 500`).bind(installationId, now)
     : scope === "past"
       ? db.prepare(`${staffBookingSelect} WHERE b.installation_id=? AND b.removed=0 AND b.departure_ms<=? ORDER BY b.arrival_ms DESC,b.id LIMIT 500`).bind(installationId, now)
-      : db.prepare(`SELECT * FROM (${staffBookingSelect} WHERE b.installation_id=? AND b.removed=0) WHERE ${attentionPredicate} ORDER BY arrival_ms,id LIMIT 500`).bind(installationId);
+      : scope === "removed"
+        ? db.prepare(`${staffBookingSelect} WHERE b.installation_id=? AND b.removed=1 ORDER BY b.arrival_ms DESC,b.id LIMIT 500`).bind(installationId)
+        : db.prepare(`SELECT * FROM (${staffBookingSelect} WHERE b.installation_id=? AND b.removed=0) WHERE ${attentionPredicate} ORDER BY arrival_ms,id LIMIT 500`).bind(installationId);
   return (await rows<StaffBookingRow>(statement)).map((row) => staffBooking(civil, timeZone, row));
 }
 

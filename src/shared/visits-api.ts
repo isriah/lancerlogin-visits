@@ -48,7 +48,10 @@ export const adminVisitsRoutes = {
   windowCancel: (id: string) => `/admin/visits/windows/${encodeURIComponent(id)}/cancel`,
   /** POST `{ revision }`. */
   windowRestore: (id: string) => `/admin/visits/windows/${encodeURIComponent(id)}/restore`,
-  /** GET `?scope=upcoming|past|attention`: `StaffBooking[]`. */
+  /**
+   * GET `?scope=upcoming|past|removed|attention`: `StaffBooking[]`. Removed visits are listed only under `removed`, most
+   * recent visit first, so staff can open their history and restore them.
+   */
   bookings: "/admin/visits/bookings",
   /** GET: `StaffBookingDetail`. PUT `StaffBookingEdit`. DELETE `?revision=`: remove the visit (kept in history, hidden from lists). */
   booking: (id: string) => `/admin/visits/bookings/${encodeURIComponent(id)}`,
@@ -84,6 +87,8 @@ export type ApiError = { readonly error: string; readonly field?: string };
 // Public shapes.
 export type PublicCalendar = {
   readonly timeZone: string;
+  /** The host team's name from settings, such as "FRC 321 Lancers", or empty when none is set. */
+  readonly hostName: string;
   readonly introText: string;
   /** How far ahead guests may book, in days. */
   readonly horizonDays: number;
@@ -109,6 +114,8 @@ export type PublicBookingResult = { readonly booked: true; readonly emailTo: str
 export type LocalVisitTimes = { readonly date: string; readonly arrival: string; readonly departure: string; readonly arrivalMs: number; readonly departureMs: number };
 export type ManageView = {
   readonly timeZone: string;
+  /** The host team's name from settings, or empty when none is set. */
+  readonly hostName: string;
   readonly booking: LocalVisitTimes & {
     readonly id: string;
     readonly revision: number;
@@ -156,11 +163,17 @@ export type StaffWindow = {
   readonly bookedCount: number;
   readonly teamCount: number;
 };
-export type EmailState = "none" | "pending" | "sent" | "failed" | "capped";
+/**
+ * The state of a visit's latest email. paused: a backup restore stopped it before it was sent, and nothing sends it; staff
+ * resend the confirmation.
+ */
+export type EmailState = "none" | "pending" | "sent" | "failed" | "capped" | "paused";
 export type StaffBooking = LocalVisitTimes & {
   readonly id: string;
   readonly revision: number;
   readonly status: "booked" | "canceled";
+  /** Removed by staff: canceled without an email and hidden from every list but `removed`. Restore it from its history. */
+  readonly removed: boolean;
   readonly team: TeamIdentity & { readonly id: string };
   readonly windowId: string;
   readonly windowTitle: string;
@@ -218,6 +231,11 @@ export type VisitsStatus = {
 };
 export type VisitsSettings = {
   readonly revision: number;
+  /**
+   * The host team's name as guests read it, for example "FRC 321 Lancers", at most 80 characters. Guest emails and the
+   * guest page use it; empty means they say "our team".
+   */
+  readonly hostName: string;
   readonly introText: string;
   readonly replyTo: string;
   readonly testEmailSentMs: number | null;

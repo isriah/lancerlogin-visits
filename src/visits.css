@@ -85,6 +85,8 @@
 :where([data-module="visits"]) .visits-header-link:focus-visible,:where([data-module="visits"]) .visits-attention-banner a:focus-visible { outline: 3px solid var(--ui-focus); outline-offset: 2px; }
 :where([data-module="visits"]) .visits-banners { display: grid; gap: var(--space-2); }
 :where([data-module="visits"]) .visits-banners > p { margin: 0; }
+:where([data-module="visits"]) .visits-banners a { color: inherit; font-weight: 800; text-underline-offset: var(--space-1); }
+:where([data-module="visits"]) .visits-banners a:focus-visible { outline: 3px solid var(--ui-focus); outline-offset: 2px; }
 :where([data-module="visits"]) .visits-attention-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-4); }
 :where([data-module="visits"]) .visits-attention-banner a { display: inline-flex; align-items: center; min-height: var(--control-min-block-size); color: inherit; font-weight: 800; text-underline-offset: var(--space-1); }
 :where([data-module="visits"]) .visits-section-toolbar { display: flex; justify-content: flex-end; }
@@ -109,6 +111,7 @@
 :where([data-module="visits"]) .visits-booking { display: grid; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--ui-border); border-radius: var(--radius-card); background: var(--ui-surface); }
 :where([data-module="visits"]) .visits-booking-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); }
 :where([data-module="visits"]) .visits-booking-heading h4 { margin: 0; font-family: var(--font-body); font-size: var(--text-body); font-weight: 800; overflow-wrap: anywhere; }
+:where([data-module="visits"]) .visits-booking > .visits-outreach-result { margin: 0; }
 :where([data-module="visits"]) .visits-attention-notes { display: grid; gap: var(--space-1); margin: 0; padding: var(--space-3) var(--space-3) var(--space-3) var(--space-8); border-radius: var(--radius-control); color: var(--ui-warning); background: var(--ui-warning-surface); font-size: var(--text-small); }
 
 /* Dialogs */

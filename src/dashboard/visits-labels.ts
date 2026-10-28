@@ -2,7 +2,7 @@
 // and guest team lists. Plain functions over src/shared, so `npm test` covers them without React.
 import type { AttentionReason, FieldChange, TeamIdentity } from "../shared/visits-booking.ts";
 import { programLabels, programShortLabels, visitPrograms, type VisitProgram } from "../shared/visits-booking.ts";
-import type { BookingHistoryEntry, EmailState, StaffBooking, StaffTeam } from "../shared/visits-api.ts";
+import type { BookingHistoryEntry, EmailState, OutreachRecordResult, StaffBooking, StaffTeam } from "../shared/visits-api.ts";
 import { formatInstant, peopleText } from "./visits-local.ts";
 
 /** Tones match Core's `ui-status` data-tone values. */
@@ -23,6 +23,7 @@ export const emailStateBadges: Readonly<Record<EmailState, Badge>> = {
   sent: { label: "Email sent", tone: "success" },
   failed: { label: "Email failed", tone: "error" },
   capped: { label: "Email waiting: daily limit", tone: "warning" },
+  paused: { label: "Email stopped by a restore", tone: "warning" },
 };
 
 export const attentionReasonText: Readonly<Record<AttentionReason, string>> = {
@@ -40,16 +41,65 @@ export function outreachBadge(outreach: StaffBooking["outreach"]): Badge | null 
   return { label: "Outreach record waiting", tone: "neutral" };
 }
 
-/** Status badges for a visit card, most important first. */
-export function bookingBadges(booking: Pick<StaffBooking, "status" | "attention" | "email" | "outreach">, outreachAvailable: boolean): Badge[] {
+/** A visit Outreach could record: booked, not removed, and of a program Outreach supports. */
+type OutreachCandidate = Pick<StaffBooking, "status" | "removed" | "outreach"> & { readonly team: Pick<TeamIdentity, "program"> };
+const recordableVisit = (booking: OutreachCandidate) => booking.status === "booked" && !booking.removed && booking.team.program !== "Other";
+
+/**
+ * Status badges for a visit card, most important first. A removed visit sends nothing, so it shows no email state. A
+ * visit's Outreach state shows whenever it has one; while Outreach can be used, a booked visit it could record but has
+ * not says so.
+ */
+export function bookingBadges(booking: OutreachCandidate & Pick<StaffBooking, "attention" | "email">, outreachAvailable: boolean): Badge[] {
   const badges: Badge[] = [];
-  if (booking.status === "canceled") badges.push({ label: "Canceled", tone: "neutral" });
+  if (booking.removed) badges.push({ label: "Removed", tone: "neutral" });
+  else if (booking.status === "canceled") badges.push({ label: "Canceled", tone: "neutral" });
   if (booking.attention.state === "needed") badges.push({ label: "Needs attention", tone: "warning" });
   if (booking.attention.state === "handled") badges.push({ label: "Handled", tone: "neutral" });
-  badges.push(emailStateBadges[booking.email]);
-  const outreach = outreachAvailable ? outreachBadge(booking.outreach) : null;
+  if (!booking.removed) badges.push(emailStateBadges[booking.email]);
+  const outreach = outreachBadge(booking.outreach) ?? (outreachAvailable && recordableVisit(booking) ? { label: "Not in Outreach yet", tone: "neutral" as const } : null);
   if (outreach) badges.push(outreach);
   return badges;
+}
+
+/**
+ * Whether Record in Outreach applies to a visit: Outreach can be used now (through an Admin's grant or the staff member's
+ * own Outreach access), and the visit is booked, of a supported program and not recorded yet. A waiting record is the
+ * job's to do while a grant lets it; without one, staff record it themselves.
+ */
+export function canRecordInOutreach(booking: OutreachCandidate, outreach: { readonly available: boolean; readonly granted: boolean }): boolean {
+  if (!outreach.available || !recordableVisit(booking)) return false;
+  if (booking.outreach?.state === "recorded") return false;
+  return !(booking.outreach?.state === "pending" && outreach.granted);
+}
+
+/** One visit's Record in Outreach result in words. */
+export function outreachResultText(result: Pick<OutreachRecordResult, "state" | "error">): string {
+  if (result.state === "recorded") return "Recorded in Outreach as Team Support.";
+  if (result.state === "pending") return "Waiting: Guest Visits records it on its next notification pass.";
+  if (result.state === "failed") return `Outreach did not record it${result.error ? `: ${result.error}` : "."}`;
+  return `Not recorded${result.error ? `: ${result.error}` : "."}`;
+}
+
+const visitCount = (count: number) => `${count} ${count === 1 ? "visit" : "visits"}`;
+
+/**
+ * What one Record in Outreach request did, as a status line: how many visits were recorded, wait for the job, failed or
+ * were skipped, naming the visits that need a look. `nameOf` names a visit by its booking ID.
+ */
+export function outreachRecordSummary(results: readonly OutreachRecordResult[], nameOf: (bookingId: string) => string | undefined): { readonly tone: Tone; readonly text: string } {
+  const by = (state: OutreachRecordResult["state"]) => results.filter((result) => result.state === state);
+  const [recorded, pending, failed, skipped] = [by("recorded"), by("pending"), by("failed"), by("skipped")];
+  const named = (items: readonly OutreachRecordResult[]) => items.map((item) => `${nameOf(item.bookingId) ?? "A visit"}${item.error ? ` (${item.error})` : ""}`).join("; ");
+  const parts: string[] = [];
+  if (results.length === 1 && recorded.length === 1) parts.push(`${nameOf(recorded[0]!.bookingId) ?? "The visit"} is recorded in Outreach as Team Support.`);
+  else if (recorded.length) parts.push(`Recorded ${visitCount(recorded.length)} in Outreach as Team Support.`);
+  if (pending.length) parts.push(`${visitCount(pending.length)} ${pending.length === 1 ? "waits" : "wait"} for the next notification pass.`);
+  if (failed.length) parts.push(`Outreach did not record ${visitCount(failed.length)}: ${named(failed)}.`);
+  if (skipped.length) parts.push(`Not recorded: ${named(skipped)}.`);
+  if (!parts.length) parts.push("Nothing was recorded.");
+  const tone: Tone = failed.length ? "error" : skipped.length ? "warning" : recorded.length ? "success" : "neutral";
+  return { tone, text: parts.join(" ") };
 }
 
 /** Why a visit is in Needs attention: its attention reason, a failed or held confirmation, a failed Outreach record. */
@@ -58,13 +108,19 @@ export function attentionNotes(booking: Pick<StaffBooking, "attention" | "email"
   if (booking.attention.state === "needed" && booking.attention.reason) notes.push(attentionReasonText[booking.attention.reason]);
   if (booking.email === "failed") notes.push("The latest email to the team failed. Check the address, then resend the confirmation.");
   if (booking.email === "capped") notes.push("The latest email waits because this address reached its daily limit of Guest Visits emails. It sends tomorrow.");
-  if (booking.outreach?.state === "failed") notes.push(`Recording in Outreach failed${booking.outreach.error ? `: ${booking.outreach.error}` : ""}. It retries; Record in Outreach queues it again.`);
+  if (booking.email === "paused") notes.push("A backup restore stopped the latest email before it was sent, and restored links no longer work. Resend the confirmation so the team gets a working link.");
+  if (booking.outreach?.state === "failed") notes.push(`Recording in Outreach failed${booking.outreach.error ? `: ${booking.outreach.error}` : ""}. Use Record in Outreach to try again, or mark it handled.`);
   return notes;
 }
 
-/** Whether Mark handled applies: only a visit whose attention reason still needs handling. */
-export function canMarkHandled(booking: Pick<StaffBooking, "attention">): boolean {
-  return booking.attention.state === "needed" && booking.attention.reason !== null;
+/**
+ * Whether Mark handled applies in Needs attention: an attention reason that still needs handling, or a failed or
+ * restore-paused email or Outreach record. An email waiting under the daily cap sends on its own, so it has nothing to
+ * handle.
+ */
+export function canMarkHandled(booking: Pick<StaffBooking, "attention" | "email" | "outreach">): boolean {
+  if (booking.attention.state === "needed" && booking.attention.reason !== null) return true;
+  return booking.email === "failed" || booking.email === "paused" || booking.outreach?.state === "failed";
 }
 
 const actionText: Readonly<Record<string, string>> = { created: "Booked", updated: "Changed", canceled: "Canceled", restored: "Restored", removed: "Removed" };
@@ -128,8 +184,8 @@ export function mergeTargets(teams: readonly StaffTeam[], team: Pick<StaffTeam, 
   return sortTeams(teams.filter((candidate) => candidate.id !== team.id && candidate.program === team.program && !candidate.archived));
 }
 
-/** Upcoming visits soonest first; past visits most recent first. */
-export function sortBookings<Booking extends Pick<StaffBooking, "arrivalMs" | "departureMs">>(bookings: readonly Booking[], scope: "upcoming" | "past" | "attention"): Booking[] {
-  const direction = scope === "past" ? -1 : 1;
+/** Upcoming visits and Needs attention soonest first; past and removed visits most recent first. */
+export function sortBookings<Booking extends Pick<StaffBooking, "arrivalMs" | "departureMs">>(bookings: readonly Booking[], scope: "upcoming" | "past" | "removed" | "attention"): Booking[] {
+  const direction = scope === "past" || scope === "removed" ? -1 : 1;
   return [...bookings].sort((left, right) => direction * (left.arrivalMs - right.arrivalMs || left.departureMs - right.departureMs));
 }

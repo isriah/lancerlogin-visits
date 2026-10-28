@@ -1,11 +1,12 @@
-// Settings > Guest Visits, for Admins: the guest page link and intro text, the reply-to address and a test email, and
+// Settings > Guest Visits, for Admins: the guest page link, the host team's name and intro text, the reply-to address and a test email, and
 // Discord messages with the weekly summary. Sections use Core's settings section navigation, and leaving a section with
 // unsaved changes asks first.
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { SettingsSectionNavigation, routeWillChangeEvent, settingsSectionHref, usePath } from "@lancerlogin/module-sdk/dashboard";
 import { adminVisitsRoutes, type VisitsSettings, type VisitsSettingsUpdate, type VisitsStatus } from "../shared/visits-api.ts";
 import { parseEmail } from "../shared/visits-booking.ts";
-import { isLocalTime, weekdayNames } from "../shared/visits-time.ts";
+import { defaultHostName, maximumHostNameLength, maximumIntroTextLength } from "../shared/visits-text.ts";
+import { isLocalTime, singleLine, weekdayNames } from "../shared/visits-time.ts";
 import { discordChannelPattern, guestPageLink, settingsUpdate, type FieldErrors } from "./visits-forms.ts";
 import { failureOf, staffRequest } from "./visits-http.ts";
 import { formatInstant } from "./visits-local.ts";
@@ -123,15 +124,16 @@ function useSaving() {
 }
 
 function GuestPageSettings({ settings, status, save, onDirty }: SectionProps) {
+  const [hostName, setHostName] = useState(settings.hostName);
   const [introText, setIntroText] = useState(settings.introText);
   const [copied, setCopied] = useState<NoticeValue>();
   const saving = useSaving();
   const ids = useFieldIds();
   const focus = useFocusRequest();
   const link = guestPageLink(window.location.origin, status.guestPagePath);
-  const update = settingsUpdate(settings, { ...settings, introText: introText.trim() }, ["introText"]);
+  const update = settingsUpdate(settings, { ...settings, hostName: singleLine(hostName), introText: introText.trim() }, ["hostName", "introText"]);
   useEffect(() => { onDirty(Boolean(update)); }, [Boolean(update)]);
-  useEffect(() => { setIntroText(settings.introText); }, [settings.revision]);
+  useEffect(() => { setHostName(settings.hostName); setIntroText(settings.introText); }, [settings.revision]);
 
   async function copy() {
     try { await navigator.clipboard.writeText(link); setCopied({ tone: "success", text: "Guest page link copied." }); }
@@ -140,7 +142,8 @@ function GuestPageSettings({ settings, status, save, onDirty }: SectionProps) {
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!update) return;
-    await saving.run(() => save(update), "Guest page intro saved.", ids, focus);
+    if (singleLine(hostName).length > maximumHostNameLength) { saving.setErrors({ hostName: `Your team's name is at most ${maximumHostNameLength} characters` }); focus(ids("hostName")); return; }
+    await saving.run(() => save(update), "Guest page text saved.", ids, focus);
   }
 
   return <div className="visits-stack">
@@ -151,12 +154,16 @@ function GuestPageSettings({ settings, status, save, onDirty }: SectionProps) {
       </div>
       <p><a href={link} target="_blank" rel="noopener">Open the guest page<span className="visually-hidden"> in a new tab</span></a></p>
     </SettingsCard>
-    <SettingsCard id="visits-intro-title" title="Intro text" intro="Shown at the top of the guest page, for example where to park and what to bring." notice={saving.notice}>
-      <form className="ui-form visits-form" noValidate onSubmit={(event) => void submit(event)}>
-        <Field id={ids("introText")} label="Intro text" optional error={saving.errors.introText}>
-          <textarea {...fieldAria(ids("introText"), saving.errors.introText)} className="ui-control" rows={5} maxLength={4000} disabled={saving.busy} value={introText} onChange={(event) => setIntroText(event.target.value)} />
+    <SettingsCard id="visits-intro-title" title="Guest page text" intro="Guests see your team's name and the intro at the top of the guest page. Guest emails name your team too." notice={saving.notice}>
+      <form className="ui-form visits-form" noValidate onSubmit={(event) => void submit(event)} onKeyDown={preventImplicitSubmission}>
+        <Field id={ids("hostName")} label="Your team's name" optional error={saving.errors.hostName} help={`For example FRC 321 Lancers. The guest page then reads "Book a visit with FRC 321 Lancers". Left empty, guest pages and emails say "${defaultHostName}".`}>
+          <input {...fieldAria(ids("hostName"), saving.errors.hostName, true)} className="ui-control" autoComplete="organization" maxLength={maximumHostNameLength} disabled={saving.busy} value={hostName}
+            onChange={(event) => { setHostName(event.target.value); saving.setErrors({}); }} />
         </Field>
-        <div className="module-actions"><button className="ui-button ui-button--primary" type="submit" disabled={saving.busy || !update}>{saving.busy ? "Saving..." : "Save intro text"}</button></div>
+        <Field id={ids("introText")} label="Intro text" optional error={saving.errors.introText} help="For example where to park and what to bring.">
+          <textarea {...fieldAria(ids("introText"), saving.errors.introText, true)} className="ui-control" rows={5} maxLength={maximumIntroTextLength} disabled={saving.busy} value={introText} onChange={(event) => setIntroText(event.target.value)} />
+        </Field>
+        <div className="module-actions"><button className="ui-button ui-button--primary" type="submit" disabled={saving.busy || !update}>{saving.busy ? "Saving..." : "Save guest page text"}</button></div>
       </form>
     </SettingsCard>
   </div>;

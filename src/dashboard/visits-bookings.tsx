@@ -1,23 +1,38 @@
-// Visits and Needs attention: booked visits with their contact, email and attention state. Staff edit, cancel or remove
-// a visit, restore an earlier version from its history, resend the confirmation with a fresh link, mark attention
-// handled, and, while Outreach offers it and an Admin granted access, record visits in Outreach.
+// Visits and Needs attention: booked visits with their contact, email, attention and Outreach state. Staff edit, cancel or
+// remove a visit, restore an earlier version from its history (removed visits too, from the Removed list), resend the
+// confirmation with a fresh link, mark attention handled, and, while Outreach can be used, record visits in Outreach.
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { adminVisitsRoutes, type StaffBooking, type StaffBookingDetail, type StaffOverview, type StaffTeam } from "../shared/visits-api.ts";
+import {
+  adminVisitsRoutes, type OutreachRecordResponse, type OutreachRecordResult, type StaffBooking, type StaffBookingDetail, type StaffOverview, type StaffTeam,
+} from "../shared/visits-api.ts";
 import { formatShortDate } from "../shared/visits-time.ts";
 import { staffVisitDraft, staffVisitEdit, validateStaffVisitDraft, visitFieldOrder, type FieldErrors, type StaffVisitDraft } from "./visits-forms.ts";
 import { aborted, failureOf, staffRequest } from "./visits-http.ts";
 import {
-  attentionNotes, bookingBadges, canMarkHandled, describeChange, historyActionText, historyActorText, historyNewestFirst, sortBookings, sortTeams, teamText,
+  attentionNotes, bookingBadges, canMarkHandled, canRecordInOutreach, describeChange, historyActionText, historyActorText, historyNewestFirst, outreachRecordSummary,
+  outreachResultText, sortBookings, sortTeams, teamText, type Tone,
 } from "./visits-labels.ts";
 import { formatInstant, formatTimeRange, formatVisitWhen, groupByDate, peopleText } from "./visits-local.ts";
 import { Badges, ConfirmDialog, Field, fieldAria, firstProblem, LoadState, Notice, preventImplicitSubmission, useFieldIds, useFocusRequest, VisitsDialog, type NoticeValue } from "./visits-ui";
 
 type Outreach = { readonly available: boolean; readonly granted: boolean };
-type Scope = "upcoming" | "past" | "attention";
+type ListScope = "upcoming" | "past" | "removed";
+type Scope = ListScope | "attention";
 type Dialog = { readonly kind: "edit" | "history" | "cancel" | "remove"; readonly booking: StaffBooking };
 
+const listScopes: readonly (readonly [ListScope, string])[] = [["upcoming", "Upcoming"], ["past", "Past"], ["removed", "Removed"]];
+const titles: Readonly<Record<Scope, string>> = { upcoming: "Upcoming visits", past: "Past visits", removed: "Removed visits", attention: "Needs attention" };
+const descriptions: Readonly<Record<Scope, string>> = {
+  upcoming: "Contact details and notes are visible to staff only.",
+  past: "Contact details and notes are visible to staff only.",
+  removed: "Removed visits are hidden from the guest page and the other lists, and their teams were not emailed. Open a visit's history to restore it.",
+  attention: "Visits whose window changed, emails that failed or wait, and Outreach records to check. Mark each handled after contacting the team.",
+};
+const emptyText: Readonly<Record<Scope, string>> = { upcoming: "No upcoming visits.", past: "No past visits yet.", removed: "No removed visits.", attention: "Nothing needs attention." };
+const resultTones: Readonly<Record<OutreachRecordResult["state"], Tone>> = { recorded: "success", pending: "neutral", failed: "error", skipped: "warning" };
+
 export function BookingsSection({ mode, timeZone, outreach, onChanged }: { mode: "visits" | "attention"; timeZone: string; outreach: Outreach; onChanged: () => Promise<void> }) {
-  const [listScope, setListScope] = useState<"upcoming" | "past">("upcoming");
+  const [listScope, setListScope] = useState<ListScope>("upcoming");
   const scope: Scope = mode === "attention" ? "attention" : listScope;
   const [bookings, setBookings] = useState<StaffBooking[]>();
   const [teams, setTeams] = useState<StaffTeam[]>([]);
@@ -29,7 +44,8 @@ export function BookingsSection({ mode, timeZone, outreach, onChanged }: { mode:
   const [dialog, setDialog] = useState<Dialog>();
   const [busy, setBusy] = useState(false);
   const [dialogError, setDialogError] = useState("");
-  const recordable = outreach.available && outreach.granted;
+  // The last Record in Outreach results, by booking, shown on each visit until the list changes.
+  const [results, setResults] = useState<ReadonlyMap<string, OutreachRecordResult>>(new Map());
 
   useEffect(() => {
     const controller = new AbortController();
@@ -40,6 +56,8 @@ export function BookingsSection({ mode, timeZone, outreach, onChanged }: { mode:
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [scope, version]);
+  // Messages and results belong to the list they were made in.
+  useEffect(() => { setResults(new Map()); setNotice(undefined); setRemoved(undefined); }, [scope]);
   useEffect(() => {
     const controller = new AbortController();
     void staffRequest<StaffTeam[]>(adminVisitsRoutes.teams, { signal: controller.signal }).then(setTeams).catch(() => { /* Team names fall back to "another team". */ });
@@ -53,6 +71,20 @@ export function BookingsSection({ mode, timeZone, outreach, onChanged }: { mode:
     catch (caught) { const message = failureOf(caught).message; if (dialog) setDialogError(message); else setNotice({ tone: "error", text: message }); }
     finally { setBusy(false); }
   }
+  const nameOf = (id: string) => { const booking = bookings?.find((item) => item.id === id); return booking ? teamText(booking.team) : undefined; };
+  /** Record visits in Outreach now. Each visit shows how it went, and the status line sums it up. */
+  async function record(ids: readonly string[]) {
+    setBusy(true); setNotice(undefined);
+    try {
+      const response = await staffRequest<OutreachRecordResponse>(adminVisitsRoutes.recordOutreach, { method: "POST", body: { bookingIds: ids } });
+      const recorded = Array.isArray(response?.results) ? response.results : [];
+      setResults(new Map(recorded.map((result) => [result.bookingId, result])));
+      setNotice(outreachRecordSummary(recorded, nameOf));
+      setVersion((current) => current + 1);
+      await onChanged();
+    } catch (caught) { setNotice({ tone: "error", text: failureOf(caught).message }); }
+    finally { setBusy(false); }
+  }
   const actions: BookingActions = {
     edit: (booking) => { setDialogError(""); setDialog({ kind: "edit", booking }); },
     history: (booking) => { setDialogError(""); setDialog({ kind: "history", booking }); },
@@ -60,37 +92,36 @@ export function BookingsSection({ mode, timeZone, outreach, onChanged }: { mode:
     remove: (booking) => { setDialogError(""); setDialog({ kind: "remove", booking }); },
     resend: (booking) => void act(() => staffRequest(adminVisitsRoutes.bookingResend(booking.id), { method: "POST" }), `A new confirmation with a fresh link is on its way to ${booking.contactEmail}.`),
     handled: (booking) => void act(() => staffRequest(adminVisitsRoutes.bookingHandled(booking.id), { method: "POST" }), `${teamText(booking.team)} marked handled.`),
-    record: (ids) => void act(() => staffRequest(adminVisitsRoutes.recordOutreach, { method: "POST", body: { bookingIds: ids } }), ids.length === 1 ? "Queued for Outreach. It is recorded on the next notification pass." : `${ids.length} visits queued for Outreach. They are recorded on the next notification pass.`),
+    record: (ids) => void record(ids),
   };
-  const toRecord = (bookings ?? []).filter((booking) => booking.status === "booked" && booking.outreach?.state !== "recorded" && booking.outreach?.state !== "pending").map((booking) => booking.id);
+  const toRecord = mode === "visits" ? (bookings ?? []).filter((booking) => canRecordInOutreach(booking, outreach)).map((booking) => booking.id) : [];
   const teamName = (id: string) => { const team = teams.find((item) => item.id === id); return team ? teamText(team) : undefined; };
-  const title = mode === "attention" ? "Needs attention" : listScope === "upcoming" ? "Upcoming visits" : "Past visits";
 
   return <div className="visits-stack">
     <section className="ui-card visits-stack" aria-labelledby={`visits-${mode}-title`}>
       <div className="panel-heading visits-panel-heading">
         <div>
-          <h2 id={`visits-${mode}-title`}>{title}</h2>
-          <p>{mode === "attention" ? "Visits whose window changed, emails that failed or wait, and Outreach records to check. Mark each handled after contacting the team." : "Contact details and notes are visible to staff only."}</p>
+          <h2 id={`visits-${mode}-title`}>{titles[scope]}</h2>
+          <p>{descriptions[scope]}</p>
         </div>
         {mode === "visits" && <div className="ui-control-group visits-segmented" role="group" aria-label="Which visits">
-          {(["upcoming", "past"] as const).map((item) => <button key={item} type="button" className="ui-button" aria-pressed={listScope === item} onClick={() => setListScope(item)}>{item === "upcoming" ? "Upcoming" : "Past"}</button>)}
+          {listScopes.map(([item, label]) => <button key={item} type="button" className="ui-button" aria-pressed={listScope === item} onClick={() => setListScope(item)}>{label}</button>)}
         </div>}
       </div>
       <Notice notice={notice} />
-      {removed && <div className="visits-removed-notice"><p>{teamText(removed.team)}, {formatVisitWhen(removed.date, removed.arrival, removed.departure)} is removed from the lists. Its history keeps every version.</p>
+      {removed && <div className="visits-removed-notice"><p>{teamText(removed.team)}, {formatVisitWhen(removed.date, removed.arrival, removed.departure)} is removed. It is listed under Removed, and its history keeps every version.</p>
         <button className="ui-button" type="button" aria-haspopup="dialog" onClick={() => actions.history(removed)}>Open history to restore it</button></div>}
-      {recordable && mode === "visits" && listScope === "upcoming" && toRecord.length > 0 && <div className="visits-outreach-bar">
-        <p>{toRecord.length} {toRecord.length === 1 ? "visit is" : "visits are"} not recorded in Outreach yet.</p>
-        <button className="ui-button" type="button" disabled={busy} onClick={() => actions.record(toRecord)}>Record in Outreach</button>
+      {toRecord.length > 1 && <div className="visits-outreach-bar">
+        <p>{toRecord.length} visits in this list are not recorded in Outreach yet.{outreach.granted ? "" : " Until an Admin grants Guest Visits access to Outreach, visits are recorded only when staff record them here."}</p>
+        <button className="ui-button" type="button" disabled={busy} onClick={() => actions.record(toRecord)}>Record all {toRecord.length} in Outreach</button>
       </div>}
       <LoadState loading={loading && !bookings} error={bookings ? "" : error} label="visits" onRetry={() => setVersion((current) => current + 1)} />
       {bookings && error && <p className="ui-status settings-notice" data-tone="error" role="alert">{error}</p>}
-      {bookings && bookings.length === 0 && <p className="empty-state">{mode === "attention" ? "Nothing needs attention." : listScope === "upcoming" ? "No upcoming visits." : "No past visits yet."}</p>}
-      {bookings && groupByDate(bookings, (booking) => booking.date).sort((left, right) => scope === "past" ? right.date.localeCompare(left.date) : left.date.localeCompare(right.date)).map((day) => <section key={day.date} className="visits-day" aria-labelledby={`visits-${mode}-${day.date}`}>
+      {bookings && bookings.length === 0 && <p className="empty-state">{emptyText[scope]}</p>}
+      {bookings && groupByDate(bookings, (booking) => booking.date).sort((left, right) => scope === "past" || scope === "removed" ? right.date.localeCompare(left.date) : left.date.localeCompare(right.date)).map((day) => <section key={day.date} className="visits-day" aria-labelledby={`visits-${mode}-${day.date}`}>
         <h3 id={`visits-${mode}-${day.date}`}>{formatShortDate(day.date)}</h3>
         <ul className="visits-booking-list">
-          {day.items.map((booking) => <li key={booking.id}><BookingCard booking={booking} mode={mode} outreach={outreach} busy={busy} actions={actions} /></li>)}
+          {day.items.map((booking) => <li key={booking.id}><BookingCard booking={booking} mode={mode} outreach={outreach} result={results.get(booking.id)} busy={busy} actions={actions} /></li>)}
         </ul>
       </section>)}
     </section>
@@ -107,7 +138,7 @@ export function BookingsSection({ mode, timeZone, outreach, onChanged }: { mode:
     {dialog?.kind === "remove" && <ConfirmDialog title="Remove this visit?" confirmLabel="Remove visit" cancelLabel="Keep visit" danger busy={busy} error={dialogError} onClose={() => setDialog(undefined)}
       onConfirm={() => { const booking = dialog.booking; void act(() => staffRequest(`${adminVisitsRoutes.booking(booking.id)}?${new URLSearchParams({ revision: String(booking.revision) })}`, { method: "DELETE" }), `${teamText(booking.team)} removed.`, () => setRemoved(booking)); }}>
       <p>{teamText(dialog.booking.team)}, {formatVisitWhen(dialog.booking.date, dialog.booking.arrival, dialog.booking.departure)}.</p>
-      <p>Removing hides the visit from the guest page and these lists without emailing the team. Use it for duplicates and test bookings; cancel instead when the team should hear about it. Its history stays, so you can restore it.</p>
+      <p>Removing hides the visit from the guest page and these lists without emailing the team. Use it for duplicates and test bookings; cancel instead when the team should hear about it. It stays under Removed with its history, so you can restore it.</p>
     </ConfirmDialog>}
   </div>;
 }
@@ -119,20 +150,20 @@ type BookingActions = {
   readonly remove: (booking: StaffBooking) => void;
   readonly resend: (booking: StaffBooking) => void;
   readonly handled: (booking: StaffBooking) => void;
-  readonly record: (ids: string[]) => void;
+  readonly record: (ids: readonly string[]) => void;
 };
 
-function BookingCard({ booking, mode, outreach, busy, actions }: { booking: StaffBooking; mode: "visits" | "attention"; outreach: Outreach; busy: boolean; actions: BookingActions }) {
+function BookingCard({ booking, mode, outreach, result, busy, actions }: { booking: StaffBooking; mode: "visits" | "attention"; outreach: Outreach; result: OutreachRecordResult | undefined; busy: boolean; actions: BookingActions }) {
   const team = teamText(booking.team);
   const notes = mode === "attention" ? attentionNotes(booking) : [];
-  const booked = booking.status === "booked";
-  const canRecord = outreach.available && outreach.granted && booked && booking.outreach?.state !== "recorded" && booking.outreach?.state !== "pending";
+  const booked = booking.status === "booked" && !booking.removed;
   return <article className="visits-booking" aria-label={`${team}, ${formatTimeRange(booking.arrival, booking.departure)}`}>
     <div className="visits-booking-heading">
       <h4>{team}</h4>
       <Badges badges={bookingBadges(booking, outreach.available)} />
     </div>
     {notes.length > 0 && <ul className="visits-attention-notes">{notes.map((note) => <li key={note}>{note}</li>)}</ul>}
+    {result && result.state !== "recorded" && <p className="ui-status settings-notice visits-outreach-result" data-tone={resultTones[result.state]} role="status">{outreachResultText(result)}</p>}
     <dl className="visits-details">
       <div><dt>Time</dt><dd>{formatTimeRange(booking.arrival, booking.departure)}{booking.windowTitle ? ` (${booking.windowTitle})` : ""}</dd></div>
       <div><dt>People</dt><dd>{peopleText(booking.headcount)}</dd></div>
@@ -140,15 +171,17 @@ function BookingCard({ booking, mode, outreach, busy, actions }: { booking: Staf
       <div><dt>Email</dt><dd className="visits-break"><a href={`mailto:${booking.contactEmail}`}>{booking.contactEmail}</a></dd></div>
       {booking.note && <div className="visits-details-wide"><dt>Note</dt><dd className="visits-multiline">{booking.note}</dd></div>}
     </dl>
-    <div className="module-actions visits-row-actions">
+    {booking.removed ? <div className="module-actions visits-row-actions">
+      <button className="ui-button" type="button" aria-haspopup="dialog" disabled={busy} onClick={() => actions.history(booking)}>History and restore<span className="visually-hidden"> {team}</span></button>
+    </div> : <div className="module-actions visits-row-actions">
       {mode === "attention" && canMarkHandled(booking) && <button className="ui-button ui-button--primary" type="button" disabled={busy} onClick={() => actions.handled(booking)}>Mark handled<span className="visually-hidden"> {team}</span></button>}
       <button className="ui-button" type="button" aria-haspopup="dialog" disabled={busy} onClick={() => actions.edit(booking)}>Edit<span className="visually-hidden"> {team}</span></button>
       <button className="ui-button" type="button" aria-haspopup="dialog" disabled={busy} onClick={() => actions.history(booking)}>History<span className="visually-hidden"> of {team}</span></button>
       {booked && <button className="ui-button" type="button" disabled={busy} onClick={() => actions.resend(booking)}>Resend confirmation<span className="visually-hidden"> to {team}</span></button>}
-      {canRecord && <button className="ui-button" type="button" disabled={busy} onClick={() => actions.record([booking.id])}>Record in Outreach<span className="visually-hidden"> {team}</span></button>}
+      {canRecordInOutreach(booking, outreach) && <button className="ui-button" type="button" disabled={busy} onClick={() => actions.record([booking.id])}>Record in Outreach<span className="visually-hidden"> {team}</span></button>}
       {booked && <button className="ui-button" type="button" aria-haspopup="dialog" disabled={busy} onClick={() => actions.cancel(booking)}>Cancel visit<span className="visually-hidden"> {team}</span></button>}
       <button className="ui-button ui-button--danger" type="button" aria-haspopup="dialog" disabled={busy} onClick={() => actions.remove(booking)}>Remove<span className="visually-hidden"> {team}</span></button>
-    </div>
+    </div>}
   </article>;
 }
 
