@@ -46,8 +46,9 @@ type OutreachCandidate = Pick<StaffBooking, "status" | "removed" | "outreach"> &
 const recordableVisit = (booking: OutreachCandidate) => booking.status === "booked" && !booking.removed && booking.team.program !== "Other";
 
 /**
- * Status badges for a visit card, most important first. A visit's Outreach state shows whenever it has one; while
- * Outreach can be used, a booked visit it could record but has not says so.
+ * Status badges for a visit card, most important first. A removed visit sends nothing, so it shows no email state. A
+ * visit's Outreach state shows whenever it has one; while Outreach can be used, a booked visit it could record but has
+ * not says so.
  */
 export function bookingBadges(booking: OutreachCandidate & Pick<StaffBooking, "attention" | "email">, outreachAvailable: boolean): Badge[] {
   const badges: Badge[] = [];
@@ -55,7 +56,7 @@ export function bookingBadges(booking: OutreachCandidate & Pick<StaffBooking, "a
   else if (booking.status === "canceled") badges.push({ label: "Canceled", tone: "neutral" });
   if (booking.attention.state === "needed") badges.push({ label: "Needs attention", tone: "warning" });
   if (booking.attention.state === "handled") badges.push({ label: "Handled", tone: "neutral" });
-  badges.push(emailStateBadges[booking.email]);
+  if (!booking.removed) badges.push(emailStateBadges[booking.email]);
   const outreach = outreachBadge(booking.outreach) ?? (outreachAvailable && recordableVisit(booking) ? { label: "Not in Outreach yet", tone: "neutral" as const } : null);
   if (outreach) badges.push(outreach);
   return badges;

@@ -23,7 +23,7 @@ test("visit badges show removal or cancellation, attention, email and the visit'
   assert.deepEqual(bookingBadges({ ...base, status: "canceled", attention: { state: "needed", reason: "outreach-activity-kept" }, email: "capped", outreach: { state: "recorded", activityId: "a1" } }, true).map((badge) => badge.label), [
     "Canceled", "Needs attention", "Email waiting: daily limit", "Recorded in Outreach",
   ]);
-  assert.deepEqual(bookingBadges({ ...base, status: "canceled", removed: true }, true).map((badge) => badge.label), ["Removed", "Email sent"]);
+  assert.deepEqual(bookingBadges({ ...base, status: "canceled", removed: true, email: "pending" }, true).map((badge) => badge.label), ["Removed"], "a removed visit sends nothing");
   // A known Outreach state always shows; "not yet" shows only while Outreach can be used, for visits it could record.
   assert.deepEqual(bookingBadges({ ...base, outreach: { state: "failed", activityId: null } }, false).map((badge) => badge.label), ["Email sent", "Outreach record failed"]);
   assert.deepEqual(bookingBadges(base, true).map((badge) => badge.label), ["Email sent", "Not in Outreach yet"]);

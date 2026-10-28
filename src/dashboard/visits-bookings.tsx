@@ -56,7 +56,8 @@ export function BookingsSection({ mode, timeZone, outreach, onChanged }: { mode:
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [scope, version]);
-  useEffect(() => { setResults(new Map()); }, [scope]);
+  // Messages and results belong to the list they were made in.
+  useEffect(() => { setResults(new Map()); setNotice(undefined); setRemoved(undefined); }, [scope]);
   useEffect(() => {
     const controller = new AbortController();
     void staffRequest<StaffTeam[]>(adminVisitsRoutes.teams, { signal: controller.signal }).then(setTeams).catch(() => { /* Team names fall back to "another team". */ });
@@ -162,7 +163,7 @@ function BookingCard({ booking, mode, outreach, result, busy, actions }: { booki
       <Badges badges={bookingBadges(booking, outreach.available)} />
     </div>
     {notes.length > 0 && <ul className="visits-attention-notes">{notes.map((note) => <li key={note}>{note}</li>)}</ul>}
-    {result && <p className="ui-status settings-notice visits-outreach-result" data-tone={resultTones[result.state]} role="status">{outreachResultText(result)}</p>}
+    {result && result.state !== "recorded" && <p className="ui-status settings-notice visits-outreach-result" data-tone={resultTones[result.state]} role="status">{outreachResultText(result)}</p>}
     <dl className="visits-details">
       <div><dt>Time</dt><dd>{formatTimeRange(booking.arrival, booking.departure)}{booking.windowTitle ? ` (${booking.windowTitle})` : ""}</dd></div>
       <div><dt>People</dt><dd>{peopleText(booking.headcount)}</dd></div>
