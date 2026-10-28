@@ -12,7 +12,7 @@ export const visitsBackupColumns = {
   visits_availability_series: ["installation_id", "id", "weekday_mask", "start_time", "end_time", "first_date", "last_date", "title", "revision", "created_at", "updated_at"],
   visits_windows: ["installation_id", "id", "series_id", "start_ms", "end_ms", "title", "status", "cancel_reason", "edited", "revision", "created_at", "updated_at"],
   visits_teams: ["installation_id", "id", "number", "name", "program", "outreach_team_id", "archived", "revision", "created_at", "updated_at"],
-  visits_bookings: ["installation_id", "id", "window_id", "team_id", "contact_name", "contact_email", "contact_phone", "arrival_ms", "departure_ms", "headcount", "note", "status", "attention", "attention_reason", "outreach_activity_id", "revision", "created_at", "updated_at"],
+  visits_bookings: ["installation_id", "id", "window_id", "team_id", "contact_name", "contact_email", "contact_phone", "arrival_ms", "departure_ms", "headcount", "note", "status", "removed", "attention", "attention_reason", "outreach_activity_id", "revision", "created_at", "updated_at"],
   visits_booking_revisions: ["installation_id", "booking_id", "revision", "action", "actor_kind", "staff_user_id", "change_json", "snapshot_json", "created_at"],
   visits_notifications: ["installation_id", "id", "channel", "kind", "booking_id", "summary_date", "payload_json", "status", "attempts", "next_attempt_ms", "lease_token", "lease_expires_ms", "external_id", "last_error", "created_at", "updated_at"],
 } as const satisfies Record<string, readonly string[]>;

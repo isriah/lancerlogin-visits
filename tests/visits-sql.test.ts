@@ -184,6 +184,20 @@ test("booking edits carry the revision: stale edits change nothing and bookkeepi
   assert.deepEqual(await db.prepare("SELECT headcount,revision,attention,outreach_activity_id FROM visits_bookings").first(), { headcount: 14, revision: 1, attention: "needed", outreach_activity_id: "activity-9" });
 });
 
+test("a removed visit is canceled, and removing or restoring it moves the revision like any change guests can see", async () => {
+  const db = createTestDatabase();
+  await seedBooking(db);
+  await assert.rejects(db.prepare("UPDATE visits_bookings SET removed=1,revision=revision+1 WHERE id='booking-1'").run(), check);
+  await assert.rejects(db.prepare("UPDATE visits_bookings SET removed=1,status='canceled' WHERE id='booking-1'").run(), /visits_booking_revision/);
+  await assert.rejects(db.prepare("UPDATE visits_bookings SET removed=2,status='canceled',revision=revision+1 WHERE id='booking-1'").run(), check);
+  await db.prepare("UPDATE visits_bookings SET removed=1,status='canceled',revision=revision+1 WHERE id='booking-1'").run();
+  await insert(db, "visits_booking_revisions", revisionRow({ revision: 1, action: "removed", actor_kind: "staff", staff_user_id: "user-1" }));
+  await assert.rejects(db.prepare("UPDATE visits_bookings SET removed=0,status='booked' WHERE id='booking-1'").run(), /visits_booking_revision/);
+  await db.prepare("UPDATE visits_bookings SET removed=0,status='booked',revision=revision+1 WHERE id='booking-1'").run();
+  assert.deepEqual(await db.prepare("SELECT status,removed,revision FROM visits_bookings").first(), { status: "booked", removed: 0, revision: 2 });
+  await assert.rejects(insert(db, "visits_booking_revisions", revisionRow({ revision: 2, action: "deleted" })), check);
+});
+
 test("change history is append-only and keeps working when a staff account is deleted", async () => {
   const db = createTestDatabase();
   await seedBooking(db);
