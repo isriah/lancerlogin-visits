@@ -56,7 +56,7 @@
 :where([data-module="visits"]) .visits-day > h3 { margin: 0; font-family: var(--font-body); font-size: var(--text-card-heading); font-weight: 800; }
 :where([data-module="visits"]) .visits-window { display: grid; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--ui-border); border-left: 4px solid var(--primary); border-radius: var(--radius-card); color: var(--ui-text); background: var(--ui-surface); }
 :where([data-module="visits"]) .visits-window[data-status="canceled"] { border-left-color: var(--ui-warning); background: var(--ui-surface-subtle); }
-:where([data-module="visits"]) .visits-window > .ui-button { justify-self: start; }
+:where([data-module="visits"]) .visits-window > button.ui-button { justify-self: start; }
 :where([data-module="visits"]) .visits-window-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); }
 :where([data-module="visits"]) .visits-window-heading h4 { margin: 0; font-family: var(--font-body); font-size: var(--text-body); font-weight: 800; }
 :where([data-module="visits"]) .visits-window-title { margin: var(--space-1) 0 0; color: var(--ui-text-muted); font-size: var(--text-small); }
@@ -120,7 +120,7 @@
 :where([data-module="visits"]) .visits-history-entry:first-child { border-top: 0; padding-top: 0; }
 :where([data-module="visits"]) .visits-history-entry > p { margin: 0; color: var(--ui-text-muted); font-size: var(--text-small); }
 :where([data-module="visits"]) .visits-history-entry > .visits-record-heading .field-help { margin: 0; }
-:where([data-module="visits"]) .visits-history-entry > .ui-button { justify-self: start; }
+:where([data-module="visits"]) .visits-history-entry > button.ui-button { justify-self: start; }
 
 /* Settings and setup */
 :where([data-module="visits"]) .visits-settings { display: grid; gap: var(--space-4); }
@@ -132,18 +132,17 @@
 @media (max-width: 40rem) {
   :where([data-module="visits"]) .visits-public-page { width: min(100% - 1rem, 46rem); margin-block: var(--space-3); gap: var(--space-4); }
   :where([data-module="visits"]) .visits-booking-card,:where([data-module="visits"]) .visits-receipt,:where([data-module="visits"]) .visits-public-message { padding: var(--space-4); }
-  :where([data-module="visits"]) .visits-window > .ui-button,
-  :where([data-module="visits"]) .visits-form .module-actions > .ui-button,
-  :where([data-module="visits"]) .visits-receipt .module-actions > .ui-button { width: 100%; }
+  :where([data-module="visits"]) .visits-form .module-actions > button.ui-button,
+  :where([data-module="visits"]) .visits-receipt .module-actions > button.ui-button { width: 100%; }
   :where([data-module="visits"]) .visits-form .module-actions { display: grid; }
   :where([data-module="visits"]) .visits-copy-link { grid-template-columns: minmax(0, 1fr); }
-  :where([data-module="visits"]) .visits-copy-link > .ui-button { width: 100%; }
+  :where([data-module="visits"]) .visits-copy-link > button.ui-button { width: 100%; }
   :where([data-module="visits"]) .visits-details { grid-template-columns: minmax(0, 1fr); }
-  :where([data-module="visits"]) .visits-booking .visits-row-actions > .ui-button { flex: 1 1 calc(50% - var(--space-2)); }
+  :where([data-module="visits"]) .visits-booking .visits-row-actions > button.ui-button { flex: 1 1 calc(50% - var(--space-2)); }
   :where([data-module="visits"]) .visits-segmented { width: 100%; }
   :where([data-module="visits"]) .visits-segmented button.ui-button { flex: 1 1 0; }
 }
 @media (max-width: 22rem) {
   :where([data-module="visits"]) .visits-time-grid { grid-template-columns: minmax(0, 1fr); }
-  :where([data-module="visits"]) .visits-booking .visits-row-actions > .ui-button { flex-basis: 100%; }
+  :where([data-module="visits"]) .visits-booking .visits-row-actions > button.ui-button { flex-basis: 100%; }
 }

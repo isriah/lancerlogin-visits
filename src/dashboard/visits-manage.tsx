@@ -22,11 +22,14 @@ type Load = { readonly state: "loading" } | { readonly state: "invalid" } | { re
 export function GuestManagePage({ navigate }: { navigate: DashboardNavigate }) {
   const [token, setToken] = useState(readToken);
   const [load, setLoad] = useState<Load>({ state: "loading" });
+  // Kept here, outside the form, so a success message survives the refreshed visit replacing the form.
+  const [notice, setNotice] = useState<NoticeValue>();
   useEffect(() => { const update = () => setToken(readToken()); window.addEventListener("hashchange", update); return () => window.removeEventListener("hashchange", update); }, []);
 
-  async function open(signal?: { cancelled: boolean }) {
+  /** Load the visit. A refresh after a change keeps the current view on screen until the new one arrives. */
+  async function open(signal?: { cancelled: boolean }, refresh = false) {
     if (!isManageToken(token)) { setLoad({ state: "invalid" }); return; }
-    setLoad({ state: "loading" });
+    if (!refresh) { setLoad({ state: "loading" }); setNotice(undefined); }
     try {
       const view = await guestRequest<ManageView>(publicVisitsRoutes.manage, { method: "POST", body: { token } });
       if (!signal?.cancelled) setLoad({ state: "ready", view });
@@ -50,12 +53,13 @@ export function GuestManagePage({ navigate }: { navigate: DashboardNavigate }) {
       <p>Links work until the visit ends, and only the newest email works after the team you are visiting corrects the email address. Ask that team to resend the confirmation if you need a new link.</p>{bookLink}
     </section>}
     {load.state === "unreachable" && <div className="visits-load-error"><p className="ui-status settings-notice" data-tone="error" role="alert">{load.message}</p><button className="ui-button" type="button" onClick={() => void open()}>Try again</button></div>}
-    {load.state === "ready" && <ManageVisit key={`${load.view.booking.id}:${load.view.booking.revision}:${load.view.booking.status}`} token={token} view={load.view} onView={(view) => setLoad({ state: "ready", view })} onReload={() => open()} />}
+    {load.state === "ready" && <ManageVisit key={`${load.view.booking.id}:${load.view.booking.revision}:${load.view.booking.status}`} token={token} view={load.view} onNotice={setNotice} onView={(view) => setLoad({ state: "ready", view })} onReload={() => open(undefined, true)} />}
+    <Notice notice={notice} />
     {load.state === "ready" && load.view.booking.status === "canceled" && bookLink}
   </main>;
 }
 
-function ManageVisit({ token, view, onView, onReload }: { token: string; view: ManageView; onView: (view: ManageView) => void; onReload: () => Promise<void> }) {
+function ManageVisit({ token, view, onNotice: setNotice, onView, onReload }: { token: string; view: ManageView; onNotice: (notice: NoticeValue | undefined) => void; onView: (view: ManageView) => void; onReload: () => Promise<void> }) {
   const { booking, timeZone } = view;
   const ids = useFieldIds();
   const focus = useFocusRequest();
@@ -65,7 +69,6 @@ function ManageVisit({ token, view, onView, onReload }: { token: string; view: M
   const [draft, setDraft] = useState<VisitDraft>(() => visitDraft(booking));
   const [errors, setErrors] = useState<FieldErrors>({});
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<NoticeValue>();
   const [stale, setStale] = useState(false);
   const [canceling, setCanceling] = useState(false);
   const [cancelError, setCancelError] = useState("");
@@ -148,8 +151,7 @@ function ManageVisit({ token, view, onView, onReload }: { token: string; view: M
       </dl>
       <p className="field-help">To change the team or the email address, contact the team you are visiting.</p>
     </section>
-    <Notice notice={notice} />
-    {stale && <div className="module-actions"><button className="ui-button" type="button" onClick={() => void onReload()}>Load the latest details</button></div>}
+    {stale && <div className="module-actions"><button className="ui-button" type="button" onClick={() => { setNotice(undefined); void onReload(); }}>Load the latest details</button></div>}
     {!canceled && <section className="ui-card visits-booking-card" aria-labelledby={ids("change")}>
       <h2 id={ids("change")}>Change this visit</h2>
       <form className="ui-form visits-form" noValidate onSubmit={(event) => void save(event)} onKeyDown={preventImplicitSubmission}>
