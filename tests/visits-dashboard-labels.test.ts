@@ -35,7 +35,7 @@ test("visit badges show removal or cancellation, attention, email and the visit'
   assert.equal(outreachBadge({ state: "pending", activityId: null })!.label, "Outreach record waiting");
 });
 
-test("Needs attention explains every reason and offers Mark handled only for attention reasons", () => {
+test("Needs attention explains every reason and offers Mark handled for whatever staff can handle", () => {
   assert.deepEqual(attentionNotes(base), []);
   const notes = attentionNotes({ attention: { state: "needed", reason: "window-canceled" }, email: "failed", outreach: { state: "failed", activityId: null, error: "Outreach is disabled" } });
   assert.equal(notes.length, 3);
@@ -44,9 +44,16 @@ test("Needs attention explains every reason and offers Mark handled only for att
   assert.match(notes[2]!, /Outreach failed: Outreach is disabled\. Use Record in Outreach to try again/);
   assert.match(attentionNotes({ ...base, email: "capped" })[0]!, /daily limit/);
   assert.equal(attentionNotes({ ...base, attention: { state: "handled", reason: "window-removed" } }).length, 0, "a handled reason is not repeated");
-  assert.equal(canMarkHandled({ attention: { state: "needed", reason: "window-changed" } }), true);
-  assert.equal(canMarkHandled({ attention: { state: "handled", reason: "window-changed" } }), false);
-  assert.equal(canMarkHandled({ attention: { state: "none", reason: null } }), false);
+  assert.match(attentionNotes({ ...base, email: "paused" })[0]!, /restore stopped the latest email.*Resend the confirmation/);
+  assert.equal(emailStateBadges.paused.label, "Email stopped by a restore");
+  assert.equal(canMarkHandled({ ...base, attention: { state: "needed", reason: "window-changed" } }), true);
+  assert.equal(canMarkHandled({ ...base, attention: { state: "handled", reason: "window-changed" } }), false);
+  assert.equal(canMarkHandled(base), false);
+  // Failed or restore-paused sends can be marked handled too; a capped email sends on its own.
+  assert.equal(canMarkHandled({ ...base, email: "failed" }), true);
+  assert.equal(canMarkHandled({ ...base, email: "paused" }), true);
+  assert.equal(canMarkHandled({ ...base, email: "capped" }), false);
+  assert.equal(canMarkHandled({ ...base, outreach: { state: "failed", activityId: null, error: "Refused" } }), true);
 });
 
 test("history reads in words, newest first, with every older entry restorable", () => {

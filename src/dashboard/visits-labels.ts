@@ -23,6 +23,7 @@ export const emailStateBadges: Readonly<Record<EmailState, Badge>> = {
   sent: { label: "Email sent", tone: "success" },
   failed: { label: "Email failed", tone: "error" },
   capped: { label: "Email waiting: daily limit", tone: "warning" },
+  paused: { label: "Email stopped by a restore", tone: "warning" },
 };
 
 export const attentionReasonText: Readonly<Record<AttentionReason, string>> = {
@@ -106,13 +107,19 @@ export function attentionNotes(booking: Pick<StaffBooking, "attention" | "email"
   if (booking.attention.state === "needed" && booking.attention.reason) notes.push(attentionReasonText[booking.attention.reason]);
   if (booking.email === "failed") notes.push("The latest email to the team failed. Check the address, then resend the confirmation.");
   if (booking.email === "capped") notes.push("The latest email waits because this address reached its daily limit of Guest Visits emails. It sends tomorrow.");
+  if (booking.email === "paused") notes.push("A backup restore stopped the latest email before it was sent, and restored links no longer work. Resend the confirmation so the team gets a working link.");
   if (booking.outreach?.state === "failed") notes.push(`Recording in Outreach failed${booking.outreach.error ? `: ${booking.outreach.error}` : ""}. Use Record in Outreach to try again, or mark it handled.`);
   return notes;
 }
 
-/** Whether Mark handled applies: only a visit whose attention reason still needs handling. */
-export function canMarkHandled(booking: Pick<StaffBooking, "attention">): boolean {
-  return booking.attention.state === "needed" && booking.attention.reason !== null;
+/**
+ * Whether Mark handled applies in Needs attention: an attention reason that still needs handling, or a failed or
+ * restore-paused email or Outreach record. An email waiting under the daily cap sends on its own, so it has nothing to
+ * handle.
+ */
+export function canMarkHandled(booking: Pick<StaffBooking, "attention" | "email" | "outreach">): boolean {
+  if (booking.attention.state === "needed" && booking.attention.reason !== null) return true;
+  return booking.email === "failed" || booking.email === "paused" || booking.outreach?.state === "failed";
 }
 
 const actionText: Readonly<Record<string, string>> = { created: "Booked", updated: "Changed", canceled: "Canceled", restored: "Restored", removed: "Removed" };

@@ -318,3 +318,24 @@ test("the host team's name from settings heads the guest page and names the host
   await book(harness, { teamNumber: "8", teamName: "Eights", contactEmail: "eight@example.org" });
   assert.equal(harness.email.sent.at(-1)!.subject, "Your visit to our team on Monday, November 2");
 });
+
+test("after a restore, a paused email puts its visit in Needs attention until staff resend it or mark it handled", async () => {
+  const harness = visitsHarness();
+  await withShopSeries(harness);
+  const first = await book(harness);
+  const second = await book(harness, { teamNumber: "8", teamName: "Eights", contactEmail: "eight@example.org" });
+  // A restore pauses waiting emails (neutralizeVisitsBackup); here both visits' latest emails are paused.
+  harness.db.sqlite.exec("UPDATE visits_notifications SET status='paused',next_attempt_ms=NULL WHERE channel='email'");
+  const sent = harness.email.sent.length;
+  await harness.job();
+  assert.equal(harness.email.sent.length, sent, "nothing sends a paused email");
+  const attention = (await harness.call("GET", "/admin/visits/bookings?scope=attention")).body;
+  assert.deepEqual(attention.map((item: { id: string; email: string }) => [item.id, item.email]).sort(), [[first.id, "paused"], [second.id, "paused"]].sort());
+  assert.equal((await harness.call("GET", "/admin/visits/status")).body.attentionCount, 2);
+  // Resending sends a fresh link; marking handled stops the paused email from asking again.
+  assert.equal((await harness.call("POST", `/admin/visits/bookings/${first.id}/resend`)).body.email, "sent");
+  const handled = await harness.call("POST", `/admin/visits/bookings/${second.id}/handled`);
+  assert.equal(handled.body.email, "failed");
+  assert.deepEqual((await harness.call("GET", "/admin/visits/bookings?scope=attention")).body, []);
+  assert.equal(harness.email.sent.length, sent + 1);
+});

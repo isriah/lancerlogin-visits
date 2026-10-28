@@ -163,7 +163,11 @@ export type StaffWindow = {
   readonly bookedCount: number;
   readonly teamCount: number;
 };
-export type EmailState = "none" | "pending" | "sent" | "failed" | "capped";
+/**
+ * The state of a visit's latest email. paused: a backup restore stopped it before it was sent, and nothing sends it; staff
+ * resend the confirmation.
+ */
+export type EmailState = "none" | "pending" | "sent" | "failed" | "capped" | "paused";
 export type StaffBooking = LocalVisitTimes & {
   readonly id: string;
   readonly revision: number;

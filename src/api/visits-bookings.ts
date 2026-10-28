@@ -449,8 +449,8 @@ export async function staffResend(db: D1Database, deps: VisitsDeps, id: string, 
 }
 
 /**
- * Staff contacted the team: the visit's attention is handled, and its failed emails and Outreach records no longer need
- * attention. A handled Outreach record still shows as failed until the visit is recorded.
+ * Staff contacted the team: the visit's attention is handled, and its failed or restore-paused emails and Outreach records
+ * no longer need attention. A handled Outreach record still shows as failed until the visit is recorded.
  */
 export async function staffHandled(db: D1Database, deps: VisitsDeps, id: string): Promise<RouteResult> {
   const booking = await requireBooking(db, id);
@@ -458,8 +458,8 @@ export async function staffHandled(db: D1Database, deps: VisitsDeps, id: string)
   const at = iso(deps.now());
   await db.batch([
     db.prepare("UPDATE visits_bookings SET attention=?,attention_reason=?,updated_at=? WHERE installation_id=? AND id=?").bind(attention.state, attention.reason, at, installationId, id),
-    db.prepare("UPDATE visits_notifications SET status='skipped',updated_at=? WHERE installation_id=? AND booking_id=? AND channel='email' AND status='failed'").bind(at, installationId, id),
-    db.prepare("UPDATE visits_notifications SET status='skipped',payload_json=json_set(payload_json,'$.handled',1),updated_at=? WHERE installation_id=? AND booking_id=? AND channel='outreach' AND status='failed'").bind(at, installationId, id),
+    db.prepare("UPDATE visits_notifications SET status='skipped',updated_at=? WHERE installation_id=? AND booking_id=? AND channel='email' AND status IN ('failed','paused')").bind(at, installationId, id),
+    db.prepare("UPDATE visits_notifications SET status='skipped',payload_json=json_set(payload_json,'$.handled',1),updated_at=? WHERE installation_id=? AND booking_id=? AND channel='outreach' AND status IN ('failed','paused')").bind(at, installationId, id),
   ]);
   return ok(await detail(db, deps, id));
 }

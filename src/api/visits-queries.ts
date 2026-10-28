@@ -19,10 +19,10 @@ const outreachStateColumns = [["status", "n.status"], ["error", "n.last_error"],
 
 /**
  * What Needs attention lists: visits whose window was canceled, removed or changed, or that were recorded in Outreach
- * before they were canceled or moved (until staff handle them), visits whose latest email failed or waits under the
- * daily cap, and visits whose latest Outreach record failed.
+ * before they were canceled or moved (until staff handle them), visits whose latest email failed, waits under the daily
+ * cap or was paused by a restore, and visits whose latest Outreach record failed or was paused by a restore.
  */
-const attentionPredicate = `(attention='needed' OR email_status='failed' OR (email_status='pending' AND email_error='${emailCappedMessage}') OR outreach_status='failed')`;
+const attentionPredicate = `(attention='needed' OR email_status IN ('failed','paused') OR (email_status='pending' AND email_error='${emailCappedMessage}') OR outreach_status IN ('failed','paused'))`;
 
 export const attentionCountSql = `SELECT COUNT(*) AS count FROM (SELECT b.attention,${emailStateColumns},${outreachStateColumns} FROM visits_bookings b WHERE b.installation_id=? AND b.removed=0) WHERE ${attentionPredicate}`;
 
@@ -41,6 +41,8 @@ export function emailState(status: string | null, error: string | null): EmailSt
   // A failed email staff marked handled is skipped: it still failed, but no longer needs attention.
   if (status === "failed" || status === "skipped") return "failed";
   if (status === "pending" && error === emailCappedMessage) return "capped";
+  // A restore paused it; nothing sends it until staff resend the confirmation.
+  if (status === "paused") return "paused";
   return "pending";
 }
 
