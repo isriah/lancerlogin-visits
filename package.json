@@ -12,7 +12,7 @@
   "lancerlogin": {
     "moduleId": "visits",
     "contract": 1,
-    "core": ">=2.0.0-beta.14 <3.0.0",
+    "core": ">=2.0.0-beta.15 <3.0.0",
     "tablePrefix": "visits_",
     "entries": {
       "manifest": "./src/manifest.ts",

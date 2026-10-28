@@ -67,11 +67,9 @@ With Discord messages on, Guest Visits posts one message per booking, change and
 
 | Plugin | LancerLogin Core | Module SDK | Module contract |
 | --- | --- | --- | --- |
-| 0.1.x | The first public Core release with module SDK 1.1.0 and later 2.x releases (`lancerlogin.core` is `>=2.0.0-beta.14 <3.0.0`) | `^1.1.0` | 1 |
+| 0.1.x | `>=2.0.0-beta.15 <3.0.0` (Modular 2.0.0-beta.15, the first Core with module SDK 1.1.0, and later 2.x releases) | `^1.1.0` | 1 |
 
 The supported Core range is the `lancerlogin.core` field in `package.json`, and the module SDK peer range declares the SDK features Guest Visits needs. Composition refuses the plugin for a Core outside that range or with an older SDK, before an installation build or web update starts. React and `@lancerlogin/module-sdk` are peer dependencies provided by Core. Recording in Outreach also needs an Outreach release with the `hour-tracking.team-support` interface.
-
-**Before the first release:** `.github/plugin-release.json` still pins Core `v2.0.0-beta.12`, which predates module SDK 1.1.0, so **Verify** cannot pass yet. Once the first public Core release containing module SDK 1.1.0 is published, pin its tag and full commit SHA there (never an unpublished commit), let Verify pass, and only then release.
 
 ## Repository layout
 
@@ -110,7 +108,7 @@ Rules Core enforces when it composes the plugin: plugin code imports only `@lanc
 
 ## Continuous integration
 
-**Verify** (`.github/workflows/ci.yml`) runs on every push to `main`, every pull request and on demand. It runs `npm test`, checks out the LancerLogin Core commit pinned in `.github/plugin-release.json` from the public [isriah/LancerLogin](https://github.com/isriah/LancerLogin) repository, composes this plugin commit into it with Core's official plugins, and typechecks and builds the composed Worker and dashboard. It passes only against a pinned Core release that includes module SDK 1.1.0 (see [Compatibility](#compatibility)).
+**Verify** (`.github/workflows/ci.yml`) runs on every push to `main`, every pull request and on demand. It runs `npm test`, checks out the LancerLogin Core commit pinned in `.github/plugin-release.json` from the public [isriah/LancerLogin](https://github.com/isriah/LancerLogin) repository, composes this plugin commit into it with Core's official plugins, and typechecks and builds the composed Worker and dashboard. The pin is currently Modular `v2.0.0-beta.15`, recorded by its full commit SHA with the tag beside it for people; it must name a published Core release inside the supported range (see [Compatibility](#compatibility)).
 
 No repository secrets are needed. Two optional secrets are used only when set, for a Core pin that is private: `LANCERLOGIN_CORE_TOKEN` (Contents: read on that Core repository) and `LANCERLOGIN_PLUGIN_TOKEN` (read access to private plugin repositories that Core composes).
 
