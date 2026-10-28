@@ -32,7 +32,11 @@ function outreach(services: CoreModuleServices, grantOnly: boolean): VisitsOutre
   return {
     grantOnly,
     client: () => client ??= Promise.resolve(services.modules?.interface(outreachInterfaceId, outreachInterfaceVersion)).catch(() => undefined),
-    providerStatus: (error) => error instanceof Error && typeof (error as { status?: unknown }).status === "number" ? (error as { status: number }).status : undefined,
+    // Core refuses calls, and passes on the provider's refusals, as HttpError with a status.
+    providerStatus: (error) => {
+      const status = error instanceof Error ? (error as Error & { readonly status?: unknown }).status : undefined;
+      return typeof status === "number" ? status : undefined;
+    },
   };
 }
 
