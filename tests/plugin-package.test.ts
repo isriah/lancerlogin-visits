@@ -82,13 +82,28 @@ test("src/shared modules import only each other, so npm test runs without Core",
   }
 });
 
+test("the package version has release notes and a changelog entry in the release tooling's form", () => {
+  const version = pkg.version as string;
+  const notes = read(`docs/releases/v${version}.md`);
+  assert.equal(notes.split("\n")[0], `# ${release.title} v${version}`, "scripts/plugin-release.mjs check-tag requires this heading");
+  assert.ok(Buffer.byteLength(notes) <= 32_000);
+  const sections = notes.split("\n").filter((line) => line.startsWith("## "));
+  assert.deepEqual(sections, ["## Bugs fixed", "## Features added", "## Features removed"]);
+  const prefix = `## [${version}] - `;
+  const entry = read("CHANGELOG.md").split("\n").find((line) => line.startsWith(prefix));
+  assert.ok(entry, `CHANGELOG.md needs a "${prefix}YYYY-MM-DD" entry, dated Unreleased until the release commit`);
+  const date = entry.slice(prefix.length);
+  assert.ok(date === "Unreleased" || /^\d{4}-\d{2}-\d{2}$/.test(date), date);
+  assert.ok(read("docs/releases/README.md").split("\n").some((line) => line.startsWith(`- [v${version}](v${version}.md) - `)), "docs/releases/README.md lists the release");
+});
+
 test("authored text uses no em or en dashes", () => {
   const scan = (directory: string): string[] => readdirSync(new URL(directory, root), { withFileTypes: true }).flatMap((entry) => {
     const path = `${directory}${entry.name}`;
     if (entry.isDirectory()) return scan(`${path}/`);
     return /\.(ts|tsx|sql|md|json)$/.test(entry.name) ? [path] : [];
   });
-  for (const path of ["README.md", ...scan("src/"), ...scan("tests/"), ...scan("migrations/")]) {
+  for (const path of ["README.md", "CHANGELOG.md", ...scan("docs/"), ...scan("src/"), ...scan("tests/"), ...scan("migrations/")]) {
     assert.doesNotMatch(read(path), /[\u2013\u2014]/, path);
   }
 });
