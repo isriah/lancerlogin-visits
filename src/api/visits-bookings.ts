@@ -40,9 +40,9 @@ async function windowsContaining(db: D1Database, visit: { readonly arrivalMs: nu
   return result.map(storedWindow);
 }
 
-async function windowById(db: D1Database, id: string): Promise<(WindowRow & BookableWindow) | null> {
+async function windowById(db: D1Database, id: string): Promise<BookableWindow | null> {
   const row = await db.prepare(`SELECT ${windowColumns} FROM visits_windows WHERE installation_id=? AND id=?`).bind(installationId, id).first<WindowRow>();
-  return row ? { ...row, ...storedWindow(row) } : null;
+  return row ? storedWindow(row) : null;
 }
 
 /** The booking after a change, as JSON built from the row itself, for history rows written in SQL. */
