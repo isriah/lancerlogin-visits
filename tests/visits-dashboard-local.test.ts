@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { at, newYork } from "./helpers/civil-time.ts";
 import {
-  arrivalChoices, compactTime, departureChoices, formatCompactDate, formatInstant, formatTimeRange, formatVisitWhen, groupByDate, groupRangesByDate,
+  arrivalChoices, compactTime, defaultDeparture, departureChoices, formatCompactDate, formatInstant, formatTimeRange, formatVisitWhen, groupByDate, groupRangesByDate,
   localReading, localSpan, monthGridRange, peopleText, teamCountText, timeSteps, todayIn, visitCountText, weekdayListText,
 } from "../src/dashboard/visits-local.ts";
 
@@ -91,4 +91,13 @@ test("arrival and departure choices stay inside the window and in order", () => 
   assert.deepEqual(departureChoices(window, "18:30"), ["18:45", "19:00"]);
   assert.deepEqual(departureChoices(window, ""), ["18:15", "18:30", "18:45", "19:00"]);
   assert.deepEqual(departureChoices(window, "19:00"), []);
+});
+
+test("the suggested departure is an hour after arrival when the window allows, else its end", () => {
+  const window = { startTime: "18:00", endTime: "21:00" };
+  assert.equal(defaultDeparture(window, "18:00"), "19:00");
+  assert.equal(defaultDeparture(window, "20:30"), "21:00");
+  assert.equal(defaultDeparture({ startTime: "18:10", endTime: "21:00" }, "18:10"), "19:15", "the first quarter hour at least an hour later");
+  assert.equal(defaultDeparture(window, ""), "21:00");
+  assert.equal(defaultDeparture(window, "21:00"), "");
 });

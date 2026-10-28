@@ -1,30 +1,23 @@
-// Dashboard contribution. It imports only the module SDK and React; the composed dashboard provides one shared copy of
-// each. The workspace route matches the manifest's navigation path and the settings page its settings path. The
-// Availability, Visits, Needs attention and Guest teams sections and the guest pages build on src/shared.
+// Dashboard contribution. It imports only the module SDK, React and the plugin's own files; the composed dashboard
+// provides one shared copy of each. Core renders every page, the setup screen and the public pages inside the module
+// root that scopes visits.css.
 import { defineDashboardModule } from "@lancerlogin/module-sdk/dashboard";
-
-function GuestVisitsWorkspace() {
-  return (
-    <section className="ui-card" aria-labelledby="visits-title">
-      <h1 id="visits-title">Guest Visits</h1>
-      <p>Availability, visits and guest teams will appear here.</p>
-    </section>
-  );
-}
-
-function GuestVisitsSettings() {
-  return (
-    <section className="ui-card" aria-labelledby="visits-settings-title">
-      <h1 id="visits-settings-title">Guest Visits</h1>
-      <p>Guest page, email and Discord settings will appear here.</p>
-    </section>
-  );
-}
+import manifest from "./manifest.ts";
+import { GuestVisitsPublicPage } from "./dashboard/visits-public";
+import { VisitsSettingsPage } from "./dashboard/visits-settings";
+import { VisitsSetup } from "./dashboard/visits-setup";
+import { VisitsWorkspace } from "./dashboard/visits-workspace";
+// Imported after the components so Guest Visits rules follow the Core stylesheets those components load.
+import "./visits.css";
 
 const dashboard = defineDashboardModule({
   moduleId: "visits",
-  routes: [{ path: "/visits", render: () => <GuestVisitsWorkspace /> }],
-  settingsPages: [{ path: "/settings/visits", render: () => <GuestVisitsSettings /> }],
+  routes: [{ path: "/visits", wide: true, render: ({ role }) => <VisitsWorkspace role={role} /> }],
+  settingsPages: [{ path: "/settings/visits", render: ({ openSetup }) => <VisitsSettingsPage openSetup={openSetup} /> }],
+  // Core requires a setup component exactly when the manifest declares setup steps (email and availability).
+  ...(manifest.setup.steps.length > 0 ? { setup: VisitsSetup } : {}),
+  // /visit is the booking page and /visit/manage the page the confirmation email links to.
+  publicPages: [{ path: "/visit", skipLinkLabel: "Skip to booking form", render: (context) => <GuestVisitsPublicPage {...context} /> }],
 });
 
 export default dashboard;

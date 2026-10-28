@@ -1,0 +1,149 @@
+/* Guest Visits module styles. Core marks every Guest Visits page, setup screen and public page with a module root
+   ([data-module="visits"]); each rule is scoped beneath it with :where() so it keeps the specificity of the class it
+   names. Colors, spacing, radii and type come from Core's tokens, so light, dark and adopter colors follow Core.
+   Phone-first: rules widen layouts above 40rem; the guest page stays one readable column. */
+
+/* Shared layout */
+:where([data-module="visits"]) .visits-stack { display: grid; gap: var(--space-4); min-width: 0; }
+:where([data-module="visits"]) .visits-stack > :where(h2, h3, p, ul, ol, dl) { margin-block: 0; }
+:where([data-module="visits"]) .visits-break { overflow-wrap: anywhere; }
+:where([data-module="visits"]) .visits-multiline { white-space: pre-line; overflow-wrap: anywhere; }
+:where([data-module="visits"]) .visits-notice { margin: 0; }
+:where([data-module="visits"]) .visits-notice:focus { outline: 3px solid var(--ui-focus); outline-offset: 2px; }
+:where([data-module="visits"]) .visits-load-error { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+:where([data-module="visits"]) .visits-load-error > p { flex: 1 1 18rem; margin: 0; }
+:where([data-module="visits"]) .visits-badges { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+:where([data-module="visits"]) .visits-badge { display: inline-flex; align-items: center; width: fit-content; padding: var(--space-1) var(--space-3); border: 1px solid currentColor; border-radius: var(--radius-pill); font-family: var(--font-body); font-size: var(--text-caption); font-weight: 800; line-height: 1.3; }
+:where([data-module="visits"]) .visits-badge:not([data-tone]) { color: var(--ui-text-muted); background: var(--ui-surface-subtle); }
+:where([data-module="visits"]) .visits-compact-list { display: grid; gap: var(--space-1); margin: 0; padding-left: var(--space-5); color: var(--ui-text); font-size: var(--text-small); }
+:where([data-module="visits"]) .visits-row-actions { gap: var(--space-2); }
+:where([data-module="visits"]) .visits-icon-button svg { flex: 0 0 auto; width: 1rem; height: 1rem; margin-right: var(--space-2); fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Forms */
+:where([data-module="visits"]) .visits-form { gap: var(--space-4); }
+:where([data-module="visits"]) .visits-form > p { margin: 0; }
+:where([data-module="visits"]) .visits-fieldset { display: grid; gap: var(--space-3); min-width: 0; margin: 0; padding: 0; border: 0; }
+:where([data-module="visits"]) .visits-fieldset > legend { margin-bottom: var(--space-1); padding: 0; }
+:where([data-module="visits"]) .visits-fieldset + .visits-fieldset { padding-top: var(--space-4); border-top: 1px solid var(--ui-border); }
+:where([data-module="visits"]) .visits-field { display: grid; gap: var(--space-2); min-width: 0; }
+:where([data-module="visits"]) .visits-field > label { margin: 0; }
+:where([data-module="visits"]) .visits-field > .field-help { margin: 0; color: var(--ui-text-muted); font-size: var(--text-small); }
+:where([data-module="visits"]) .visits-field > .visits-field-error { color: var(--ui-error); font-weight: 700; }
+:where([data-module="visits"]) .visits-field[data-invalid="true"] :is(input, select, textarea) { border-color: var(--ui-error); }
+:where([data-module="visits"]) .visits-optional { color: var(--ui-text-muted); font-weight: 400; }
+:where([data-module="visits"]) .visits-field textarea { min-height: calc(var(--control-min-block-size) * 2.5); resize: vertical; }
+:where([data-module="visits"]) .visits-number { max-width: 10rem; }
+:where([data-module="visits"]) .visits-time-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); align-items: start; }
+:where([data-module="visits"]) .visits-choice { grid-template-columns: repeat(auto-fit, minmax(9rem, max-content)); column-gap: var(--space-5); }
+:where([data-module="visits"]) .visits-choice > legend { grid-column: 1 / -1; }
+:where([data-module="visits"]) .visits-choice input[type="radio"] { flex: 0 0 auto; width: 1.25rem; height: 1.25rem; min-height: 1.25rem; margin: 0; padding: 0; accent-color: var(--primary); }
+:where([data-module="visits"]) .visits-weekday-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr)); gap: 0 var(--space-3); }
+:where([data-module="visits"]) .visits-weekdays > .visits-field-error { margin: 0; color: var(--ui-error); font-weight: 700; }
+:where([data-module="visits"]) .visits-copy-link { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-3); align-items: end; }
+:where([data-module="visits"]) .visits-copy-link input { font-family: var(--font-body); overflow: hidden; text-overflow: ellipsis; }
+
+/* Guest pages: one readable column, phone first */
+:where([data-module="visits"]) .visits-public-page { display: grid; gap: var(--space-5); width: min(46rem, calc(100% - 2rem)); margin: var(--space-6) auto; min-width: 0; }
+:where([data-module="visits"]) .visits-public-intro { display: grid; gap: var(--space-2); }
+:where([data-module="visits"]) .visits-public-intro > * { margin: 0; }
+:where([data-module="visits"]) .visits-intro-text { white-space: pre-line; overflow-wrap: anywhere; font-size: var(--text-body); }
+:where([data-module="visits"]) .visits-public-message,:where([data-module="visits"]) .visits-receipt { display: grid; gap: var(--space-3); }
+:where([data-module="visits"]) .visits-public-message > *,:where([data-module="visits"]) .visits-receipt > * { margin: 0; }
+:where([data-module="visits"]) .visits-receipt h1:focus { outline: none; }
+:where([data-module="visits"]) .visits-receipt h1:focus-visible { outline: 3px solid var(--ui-focus); outline-offset: 2px; }
+:where([data-module="visits"]) .visits-empty { margin: 0; color: var(--ui-text-muted); }
+:where([data-module="visits"]) .visits-day { display: grid; gap: var(--space-3); min-width: 0; }
+:where([data-module="visits"]) .visits-day > h3 { margin: 0; font-family: var(--font-body); font-size: var(--text-card-heading); font-weight: 800; }
+:where([data-module="visits"]) .visits-window { display: grid; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--ui-border); border-left: 4px solid var(--primary); border-radius: var(--radius-card); color: var(--ui-text); background: var(--ui-surface); }
+:where([data-module="visits"]) .visits-window[data-status="canceled"] { border-left-color: var(--ui-warning); background: var(--ui-surface-subtle); }
+:where([data-module="visits"]) .visits-window > .ui-button { justify-self: start; }
+:where([data-module="visits"]) .visits-window-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); }
+:where([data-module="visits"]) .visits-window-heading h4 { margin: 0; font-family: var(--font-body); font-size: var(--text-body); font-weight: 800; }
+:where([data-module="visits"]) .visits-window-title { margin: var(--space-1) 0 0; color: var(--ui-text-muted); font-size: var(--text-small); }
+:where([data-module="visits"]) .visits-team-count { color: var(--ui-text-muted); font-size: var(--text-small); font-weight: 700; }
+:where([data-module="visits"]) .visits-team-list { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+:where([data-module="visits"]) .visits-team-list li { display: grid; gap: var(--space-1); padding: var(--space-2) var(--space-3); border-radius: var(--radius-control); background: var(--ui-surface-subtle); overflow-wrap: anywhere; }
+:where([data-module="visits"]) .visits-team-list span { color: var(--ui-text-muted); font-size: var(--text-small); }
+:where([data-module="visits"]) .visits-booking-card { display: grid; gap: var(--space-4); }
+:where([data-module="visits"]) .visits-booking-card > :where(h2, p) { margin: 0; }
+:where([data-module="visits"]) .visits-staff-link { margin: 0; text-align: center; }
+:where([data-module="visits"]) .visits-staff-link a,:where([data-module="visits"]) .visits-public-message a { color: var(--primary); font-weight: 750; text-underline-offset: var(--space-1); }
+
+/* Visit details */
+:where([data-module="visits"]) .visits-details { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: var(--space-3); margin: 0; }
+:where([data-module="visits"]) .visits-details > div { display: grid; gap: var(--space-1); min-width: 0; }
+:where([data-module="visits"]) .visits-details dt { color: var(--ui-text-muted); font-size: var(--text-caption); font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+:where([data-module="visits"]) .visits-details dd { margin: 0; overflow-wrap: anywhere; }
+:where([data-module="visits"]) .visits-details-wide { grid-column: 1 / -1; }
+:where([data-module="visits"]) .visits-details a { color: var(--primary); text-underline-offset: var(--space-1); }
+
+/* Workspace */
+:where([data-module="visits"]) .visits-workspace { display: grid; min-width: 0; }
+:where([data-module="visits"]) .visits-header-link { display: inline-flex; align-items: center; min-height: var(--control-min-block-size); color: var(--primary); font-weight: 750; text-underline-offset: var(--space-1); }
+:where([data-module="visits"]) .visits-header-link:focus-visible,:where([data-module="visits"]) .visits-attention-banner a:focus-visible { outline: 3px solid var(--ui-focus); outline-offset: 2px; }
+:where([data-module="visits"]) .visits-banners { display: grid; gap: var(--space-2); }
+:where([data-module="visits"]) .visits-banners > p { margin: 0; }
+:where([data-module="visits"]) .visits-attention-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-4); }
+:where([data-module="visits"]) .visits-attention-banner a { display: inline-flex; align-items: center; min-height: var(--control-min-block-size); color: inherit; font-weight: 800; text-underline-offset: var(--space-1); }
+:where([data-module="visits"]) .visits-section-toolbar { display: flex; justify-content: flex-end; }
+:where([data-module="visits"]) .visits-panel-heading { flex-wrap: wrap; align-items: center; min-height: 0; padding-top: 0; }
+:where([data-module="visits"]) .visits-panel-heading > div:first-child { display: grid; gap: var(--space-1); flex: 1 1 20rem; min-width: 0; }
+:where([data-module="visits"]) .visits-panel-heading p { margin: 0; color: var(--ui-text-muted); font-size: var(--text-small); }
+:where([data-module="visits"]) .visits-segmented { flex: 0 0 auto; }
+:where([data-module="visits"]) .visits-segmented button.ui-button { border-color: transparent; background: transparent; color: var(--ui-text-muted); }
+:where([data-module="visits"]) .visits-segmented button.ui-button[aria-pressed="true"] { border-color: var(--ui-border); background: var(--ui-surface-subtle); color: var(--ui-text); }
+:where([data-module="visits"]) .visits-window-record .visits-row-actions { margin-top: var(--space-1); }
+:where([data-module="visits"]) .visits-record-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); }
+:where([data-module="visits"]) .visits-record-list { display: grid; margin: 0; padding: 0; list-style: none; }
+:where([data-module="visits"]) .visits-record { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) 0; border-top: 1px solid var(--ui-border); }
+:where([data-module="visits"]) .visits-record > div:first-child { display: grid; gap: var(--space-1); flex: 1 1 18rem; min-width: 0; }
+:where([data-module="visits"]) .visits-record p { margin: 0; color: var(--ui-text-muted); font-size: var(--text-small); }
+:where([data-module="visits"]) .visits-table th[scope="row"] { color: var(--ui-text); font-size: var(--text-body); }
+:where([data-module="visits"]) .visits-table th[scope="row"] .visits-badge { margin-left: var(--space-2); }
+:where([data-module="visits"]) .visits-table td .visits-row-actions { flex-wrap: nowrap; }
+:where([data-module="visits"]) .visits-removed-notice,:where([data-module="visits"]) .visits-outreach-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--ui-border); border-radius: var(--radius-card); background: var(--ui-surface-subtle); }
+:where([data-module="visits"]) .visits-removed-notice p,:where([data-module="visits"]) .visits-outreach-bar p { flex: 1 1 18rem; margin: 0; }
+:where([data-module="visits"]) .visits-booking-list { display: grid; gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
+:where([data-module="visits"]) .visits-booking { display: grid; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--ui-border); border-radius: var(--radius-card); background: var(--ui-surface); }
+:where([data-module="visits"]) .visits-booking-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); }
+:where([data-module="visits"]) .visits-booking-heading h4 { margin: 0; font-family: var(--font-body); font-size: var(--text-body); font-weight: 800; overflow-wrap: anywhere; }
+:where([data-module="visits"]) .visits-attention-notes { display: grid; gap: var(--space-1); margin: 0; padding: var(--space-3) var(--space-3) var(--space-3) var(--space-8); border-radius: var(--radius-control); color: var(--ui-warning); background: var(--ui-warning-surface); font-size: var(--text-small); }
+
+/* Dialogs */
+:where([data-module="visits"]) .visits-dialog { width: min(40rem, 100%); }
+:where([data-module="visits"]) .visits-dialog--wide { width: min(48rem, 100%); }
+:where([data-module="visits"]) .visits-dialog .dialog-heading > div { min-width: 0; }
+:where([data-module="visits"]) .visits-dialog .dialog-heading p { color: var(--ui-text-muted); overflow-wrap: anywhere; }
+:where([data-module="visits"]) .visits-dialog .dialog-actions { flex-wrap: wrap; }
+:where([data-module="visits"]) .visits-history { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+:where([data-module="visits"]) .visits-history-entry { display: grid; gap: var(--space-2); padding: var(--space-3) 0; border-top: 1px solid var(--ui-border); }
+:where([data-module="visits"]) .visits-history-entry:first-child { border-top: 0; padding-top: 0; }
+:where([data-module="visits"]) .visits-history-entry > p { margin: 0; color: var(--ui-text-muted); font-size: var(--text-small); }
+:where([data-module="visits"]) .visits-history-entry > .visits-record-heading .field-help { margin: 0; }
+:where([data-module="visits"]) .visits-history-entry > .ui-button { justify-self: start; }
+
+/* Settings and setup */
+:where([data-module="visits"]) .visits-settings { display: grid; gap: var(--space-4); }
+:where([data-module="visits"]) .visits-settings .ui-card h2 { margin: 0; }
+:where([data-module="visits"]) .visits-settings .ui-card p { margin: 0; }
+:where([data-module="visits"]) .visits-settings .settings-notice a,:where([data-module="visits"]) .visits-setup .settings-notice a { color: inherit; font-weight: 800; text-underline-offset: var(--space-1); }
+:where([data-module="visits"]) .visits-setup .module-setup-card .visits-form { gap: var(--space-4); }
+
+@media (max-width: 40rem) {
+  :where([data-module="visits"]) .visits-public-page { width: min(100% - 1rem, 46rem); margin-block: var(--space-3); gap: var(--space-4); }
+  :where([data-module="visits"]) .visits-booking-card,:where([data-module="visits"]) .visits-receipt,:where([data-module="visits"]) .visits-public-message { padding: var(--space-4); }
+  :where([data-module="visits"]) .visits-window > .ui-button,
+  :where([data-module="visits"]) .visits-form .module-actions > .ui-button,
+  :where([data-module="visits"]) .visits-receipt .module-actions > .ui-button { width: 100%; }
+  :where([data-module="visits"]) .visits-form .module-actions { display: grid; }
+  :where([data-module="visits"]) .visits-copy-link { grid-template-columns: minmax(0, 1fr); }
+  :where([data-module="visits"]) .visits-copy-link > .ui-button { width: 100%; }
+  :where([data-module="visits"]) .visits-details { grid-template-columns: minmax(0, 1fr); }
+  :where([data-module="visits"]) .visits-booking .visits-row-actions > .ui-button { flex: 1 1 calc(50% - var(--space-2)); }
+  :where([data-module="visits"]) .visits-segmented { width: 100%; }
+  :where([data-module="visits"]) .visits-segmented button.ui-button { flex: 1 1 0; }
+}
+@media (max-width: 22rem) {
+  :where([data-module="visits"]) .visits-time-grid { grid-template-columns: minmax(0, 1fr); }
+  :where([data-module="visits"]) .visits-booking .visits-row-actions > .ui-button { flex-basis: 100%; }
+}

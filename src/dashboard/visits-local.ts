@@ -144,6 +144,14 @@ export function departureChoices(span: Pick<LocalSpan, "startTime" | "endTime">,
   return isLocalTime(arrival) ? steps.filter((time) => minutesOfDay(time) > minutesOfDay(arrival)) : steps;
 }
 
+/** The departure to suggest for an arrival: an hour later when the window allows, else the window's end. */
+export function defaultDeparture(span: Pick<LocalSpan, "startTime" | "endTime">, arrival: string): string {
+  const choices = departureChoices(span, arrival);
+  if (!isLocalTime(arrival)) return choices[choices.length - 1] ?? "";
+  const target = minutesOfDay(arrival) + 60;
+  return choices.find((time) => minutesOfDay(time) >= target) ?? choices[choices.length - 1] ?? "";
+}
+
 /** "1 person", "5 people". */
 export function peopleText(count: number): string {
   return `${count} ${count === 1 ? "person" : "people"}`;
