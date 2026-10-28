@@ -3,6 +3,7 @@
 // /module-setup followed by the module ID, and every table is either backed up or declared non-portable.
 // It imports only the plugin's own import-free shared files, so the plugin's unit tests can read it without a Core checkout;
 // tests/plugin-package.test.ts checks that its storage declarations equal src/shared/visits-storage.ts and the migration.
+import { outreachUse } from "./shared/visits-outreach.ts";
 import { visitReportDataset } from "./shared/visits-report-fields.ts";
 
 const manifest = {
@@ -12,6 +13,8 @@ const manifest = {
   contractVersion: 1,
   available: true,
   dependencies: [],
+  // Optional: once an Admin grants access in Settings > Modules, booked visits are recorded as Outreach Team support.
+  uses: [outreachUse],
   // Operators may use the workspace once an Administrator assigns Guest Visits to them.
   capabilities: [{ id: "visits.manage", label: "Manage Guest Visits", operator: true }],
   navigation: [{ label: "Guest Visits", path: "/visits" }],
@@ -40,7 +43,10 @@ const manifest = {
       "visits_manage_tokens", "visits_public_submission_keys", "visits_email_limits", "visits_notifications",
     ],
     sharedFields: [],
-    transientAuthority: [{ table: "visits_notifications", columns: ["status", "next_attempt_ms", "lease_token", "lease_expires_ms"] }],
+    transientAuthority: [
+      { table: "visits_notifications", columns: ["status", "next_attempt_ms", "lease_token", "lease_expires_ms"] },
+      { table: "visits_settings", columns: ["outreach_granted", "outreach_checked_ms"] },
+    ],
   },
   backup: {
     version: 1,
@@ -58,7 +64,7 @@ const manifest = {
   deletedData: [
     "Guest visit availability: repeating and one-off windows",
     "Guest teams, visits, contact details, notes and change history",
-    "Guest Visits settings, queued emails and Discord messages, manage links and email counts",
+    "Guest Visits settings, queued emails, Discord messages and Outreach work, manage links and email counts",
     "Guest Visits setup and assignment records",
   ],
 } as const;
