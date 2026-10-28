@@ -241,7 +241,7 @@ function AvailabilityDialog({ title, description, note, today, timeZone, initial
   const form = useAvailabilityForm(initial ?? availabilityDraft(today), onSave);
   return <VisitsDialog title={title} description={description} busy={form.busy} onClose={onClose}>
     <form className="ui-form visits-form" noValidate onSubmit={(event) => void form.submit(event)} onKeyDown={preventImplicitSubmission}>
-      <fieldset className="visits-fieldset" disabled={form.busy}>
+      <fieldset className="visits-fieldset visits-fieldset--plain" disabled={form.busy}>
         <legend className="visually-hidden">{title}</legend>
         <AvailabilityFields draft={form.draft} onChange={form.setDraft} errors={form.errors} ids={form.ids} fixed={fixed} />
       </fieldset>

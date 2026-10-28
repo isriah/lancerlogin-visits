@@ -283,7 +283,7 @@ function HistoryDialog({ booking, timeZone, teamName, onRestored, onClose }: { b
             <strong>{historyActionText(entry.action)}{index === 0 ? " (current)" : ""}</strong>
             <span className="field-help">{formatInstant(entry.atMs, timeZone)}</span>
           </div>
-          <p>{historyActorText(entry.actor)}</p>
+          <p>{historyActorText(entry.actor, entry.action)}</p>
           {entry.changes.length > 0 && <ul className="visits-compact-list">{entry.changes.map((change, item) => <li key={`${change.field}-${item}`}>{describeChange(change, { timeZone, teamName })}</li>)}</ul>}
           {restorable && <button className="ui-button" type="button" disabled={busy} onClick={() => void restore(entry.id)}>Restore this version<span className="visually-hidden"> from {formatInstant(entry.atMs, timeZone)}</span></button>}
         </li>)}

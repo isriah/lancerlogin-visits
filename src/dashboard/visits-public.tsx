@@ -151,7 +151,7 @@ function GuestBookingPage() {
         <p className="kicker">Guest Visits</p>
         <h1 id="visits-receipt-title" ref={receiptHeading} tabIndex={-1}>Visit booked</h1>
         <p><strong>{booked.team}</strong> is coming on {formatShortDate(visit.date)}, {formatTimeRange(visit.arrival, visit.departure)}{visit.windowTitle ? ` (${visit.windowTitle})` : ""}.</p>
-        <p>We sent a confirmation email to <strong className="visits-break">{booked.result.emailTo}</strong>. The link in that email is the only way to change or cancel this visit, so keep the email.</p>
+        <p>A confirmation email is on its way to <strong className="visits-break">{booked.result.emailTo}</strong>. The link in that email is the only way to change or cancel this visit, so keep the email.</p>
         <p className="field-help">No email after a few minutes? Check your spam folder, or ask the team you are visiting to resend it.</p>
         <div className="module-actions"><button className="ui-button ui-button--primary" type="button" onClick={backToTimes}>Back to open times</button></div>
       </section>

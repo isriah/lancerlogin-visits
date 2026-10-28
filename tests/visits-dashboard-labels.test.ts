@@ -46,6 +46,8 @@ test("history reads in words, newest first, with every older entry restorable", 
   assert.equal(historyActionText("created"), "Booked");
   assert.equal(historyActionText("restored"), "Restored");
   assert.equal(historyActionText("merged"), "Merged");
+  assert.equal(historyActorText({ kind: "guest" }, "created"), "The team, on the guest page");
+  assert.equal(historyActorText({ kind: "guest" }, "updated"), "The team, through the emailed link");
   assert.equal(historyActorText({ kind: "guest" }), "The team, through the emailed link");
   assert.equal(historyActorText({ kind: "staff", name: "Alex" }), "Staff: Alex");
   assert.equal(historyActorText({ kind: "staff", name: null }), "Staff");

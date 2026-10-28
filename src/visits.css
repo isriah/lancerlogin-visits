@@ -25,6 +25,8 @@
 :where([data-module="visits"]) .visits-fieldset { display: grid; gap: var(--space-3); min-width: 0; margin: 0; padding: 0; border: 0; }
 :where([data-module="visits"]) .visits-fieldset > legend { margin-bottom: var(--space-1); padding: 0; }
 :where([data-module="visits"]) .visits-fieldset + .visits-fieldset { padding-top: var(--space-4); border-top: 1px solid var(--ui-border); }
+/* A wrapper whose legend is only for screen readers draws no box, even inside Core's dialogs, which frame fieldsets. */
+:where([data-module="visits"]) fieldset.visits-fieldset--plain { margin: 0; padding: 0; border: 0; }
 :where([data-module="visits"]) .visits-field { display: grid; gap: var(--space-2); min-width: 0; }
 :where([data-module="visits"]) .visits-field > label { margin: 0; }
 :where([data-module="visits"]) .visits-field > .field-help { margin: 0; color: var(--ui-text-muted); font-size: var(--text-small); }
@@ -98,7 +100,7 @@
 :where([data-module="visits"]) .visits-record { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) 0; border-top: 1px solid var(--ui-border); }
 :where([data-module="visits"]) .visits-record > div:first-child { display: grid; gap: var(--space-1); flex: 1 1 18rem; min-width: 0; }
 :where([data-module="visits"]) .visits-record p { margin: 0; color: var(--ui-text-muted); font-size: var(--text-small); }
-:where([data-module="visits"]) .visits-table th[scope="row"] { color: var(--ui-text); font-size: var(--text-body); }
+:where([data-module="visits"]) .visits-table th[scope="row"] { color: var(--ui-text); font-size: var(--text-body); font-weight: 700; letter-spacing: normal; text-transform: none; }
 :where([data-module="visits"]) .visits-table th[scope="row"] .visits-badge { margin-left: var(--space-2); }
 :where([data-module="visits"]) .visits-table td .visits-row-actions { flex-wrap: nowrap; }
 :where([data-module="visits"]) .visits-removed-notice,:where([data-module="visits"]) .visits-outreach-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--ui-border); border-radius: var(--radius-card); background: var(--ui-surface-subtle); }

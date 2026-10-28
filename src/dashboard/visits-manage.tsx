@@ -155,7 +155,7 @@ function ManageVisit({ token, view, onNotice: setNotice, onView, onReload }: { t
     {!canceled && <section className="ui-card visits-booking-card" aria-labelledby={ids("change")}>
       <h2 id={ids("change")}>Change this visit</h2>
       <form className="ui-form visits-form" noValidate onSubmit={(event) => void save(event)} onKeyDown={preventImplicitSubmission}>
-        <fieldset className="visits-fieldset" disabled={busy}>
+        <fieldset className="visits-fieldset visits-fieldset--plain" disabled={busy}>
           <legend className="visually-hidden">Visit details</legend>
           <Field id={ids("date")} label="When" error={errors.date}>
             <select {...fieldAria(ids("date"), errors.date)} className="ui-control ui-native-select" value={windowId} onChange={(event) => chooseWindow(event.target.value)}>

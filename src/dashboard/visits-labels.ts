@@ -74,9 +74,9 @@ export function historyActionText(action: string): string {
   return actionText[action] ?? (action ? `${action[0]!.toUpperCase()}${action.slice(1)}` : "Changed");
 }
 
-/** Who made a change. */
-export function historyActorText(actor: BookingHistoryEntry["actor"]): string {
-  if (actor.kind === "guest") return "The team, through the emailed link";
+/** Who made a change. Guests book on the guest page and change or cancel through the emailed link. */
+export function historyActorText(actor: BookingHistoryEntry["actor"], action = ""): string {
+  if (actor.kind === "guest") return action === "created" ? "The team, on the guest page" : "The team, through the emailed link";
   return actor.name ? `Staff: ${actor.name}` : "Staff";
 }
 

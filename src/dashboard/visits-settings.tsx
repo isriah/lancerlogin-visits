@@ -250,7 +250,7 @@ function DiscordSettings({ settings, status, save, onDirty, navigate }: SectionP
     </p>
     <SettingsCard id="visits-discord-title" title="Discord messages" intro="Post a message for every booking, change and cancellation, and a weekly summary of upcoming visits. Contact details and notes are never posted." notice={saving.notice}>
       <form className="ui-form visits-form" noValidate onSubmit={(event) => void submit(event)} onKeyDown={preventImplicitSubmission}>
-        <fieldset className="visits-fieldset" disabled={saving.busy}>
+        <fieldset className="visits-fieldset visits-fieldset--plain" disabled={saving.busy}>
           <legend className="visually-hidden">Discord messages</legend>
           <label className="checkbox-field"><input id={ids("discordEnabled")} className="ui-checkbox" type="checkbox" checked={draft.discordEnabled} onChange={(event) => set("discordEnabled", event.target.checked)} />Post Guest Visits messages in Discord</label>
           <Field id={ids("discordChannelId")} label="Channel ID" error={saving.errors.discordChannelId} help="In Discord, turn on Developer Mode, right-click the channel and choose Copy Channel ID.">

@@ -142,7 +142,7 @@ function AvailabilityStep({ visits, busy, last, onSaved, onContinue }: { visits:
   </div>;
   return <form className="ui-form visits-form" noValidate onSubmit={(event) => void form.submit(event)} onKeyDown={preventImplicitSubmission}>
     <p>Add when guest teams may visit. A repeating window covers the same weekdays and times between two dates; you can cancel single dates later.</p>
-    <fieldset className="visits-fieldset" disabled={form.busy || busy}>
+    <fieldset className="visits-fieldset visits-fieldset--plain" disabled={form.busy || busy}>
       <legend className="visually-hidden">First availability</legend>
       <AvailabilityFields draft={form.draft} onChange={form.setDraft} errors={form.errors} ids={form.ids} />
     </fieldset>
