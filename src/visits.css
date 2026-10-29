@@ -73,10 +73,6 @@
 :where([data-module="visits"]) .visits-calendar-day[aria-current="date"] .visits-calendar-number { text-decoration: underline; text-underline-offset: 0.2em; }
 :where([data-module="visits"]) .visits-calendar-day:focus-visible { outline: 3px solid var(--ui-focus); outline-offset: 1px; }
 :where([data-module="visits"]) :is(.visits-calendar-detail, .visits-calendar-teams) { display: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-caption); font-weight: 600; }
-:where([data-module="visits"]) .visits-day-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); }
-:where([data-module="visits"]) .visits-day-heading > h2 { margin: 0; }
-:where([data-module="visits"]) .visits-day-heading > h2:focus { outline: none; }
-:where([data-module="visits"]) .visits-day-heading > h2:focus-visible { outline: 3px solid var(--ui-focus); outline-offset: 2px; }
 @media (min-width: 40rem) {
   :where([data-module="visits"]) .visits-calendar-day { align-items: stretch; justify-content: flex-start; min-height: 5rem; padding: var(--space-2); text-align: left; }
   :where([data-module="visits"]) .visits-calendar-day[data-state="open"]::after { display: none; }
@@ -157,6 +153,27 @@
 :where([data-module="visits"]) .visits-dialog .dialog-heading > div { min-width: 0; }
 :where([data-module="visits"]) .visits-dialog .dialog-heading p { color: var(--ui-text-muted); overflow-wrap: anywhere; }
 :where([data-module="visits"]) .visits-dialog .dialog-actions { flex-wrap: wrap; }
+/* The guest booking card: a dialog over the calendar that scrolls on its own, and a full-screen sheet on phones. Core
+   frames fieldsets inside dialogs; this card divides its sections with rules instead, like the guest form outside one. */
+:where([data-module="visits"]) .visits-dialog.visits-dialog--sheet { width: min(44rem, 100%); max-height: calc(100dvh - 2 * var(--space-4)); overflow: auto; overscroll-behavior: contain; }
+:where([data-module="visits"]) .visits-dialog--sheet > :not(.dialog-heading) { margin-top: var(--space-4); }
+:where([data-module="visits"]) .visits-dialog--sheet .visits-form { display: grid; gap: var(--space-4); }
+:where([data-module="visits"]) .visits-dialog--sheet fieldset.visits-fieldset { margin: 0; padding: 0; border: 0; border-radius: 0; }
+:where([data-module="visits"]) .visits-dialog--sheet .visits-form > fieldset.visits-fieldset + fieldset.visits-fieldset { padding-top: var(--space-4); border-top: 1px solid var(--ui-border); }
+:where([data-module="visits"]) .visits-dialog--sheet .visits-receipt > p { margin: 0; }
+:where([data-module="visits"]) .visits-dialog--sheet .visits-receipt > p:focus { outline: none; }
+:where([data-module="visits"]) .visits-team-found { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); padding: var(--space-3); border: 1px solid var(--ui-success); border-radius: var(--radius-control); background: var(--ui-success-surface); }
+:where([data-module="visits"]) :is(.visits-team-found, .visits-team-pick label) > span { display: grid; gap: 0.125rem; min-width: 0; overflow-wrap: anywhere; }
+:where([data-module="visits"]) :is(.visits-team-found > span > span, .visits-team-location) { color: var(--ui-text-muted); font-size: var(--text-small); }
+:where([data-module="visits"]) .visits-team-pick { gap: var(--space-2); }
+:where([data-module="visits"]) .visits-team-pick input[type="radio"] { flex: 0 0 auto; width: 1.25rem; height: 1.25rem; min-height: 1.25rem; margin: 0; padding: 0; accent-color: var(--primary); }
+:where([data-module="visits"]) .visits-link-button { justify-self: start; }
+@media (max-width: 40rem) {
+  :where([data-module="visits"]) .dialog-backdrop:has(> .visits-dialog--sheet) { padding: 0; place-items: stretch; }
+  :where([data-module="visits"]) .visits-dialog.visits-dialog--sheet { width: 100%; height: 100dvh; max-height: none; padding: var(--space-4); border: 0; border-radius: 0; }
+  :where([data-module="visits"]) .visits-dialog--sheet .dialog-heading { position: sticky; top: calc(-1 * var(--space-4)); z-index: 1; margin: calc(-1 * var(--space-4)) calc(-1 * var(--space-4)) 0; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--ui-border); background: var(--ui-surface); }
+  :where([data-module="visits"]) .visits-dialog--sheet .dialog-actions > button.ui-button { width: 100%; }
+}
 :where([data-module="visits"]) .visits-history { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
 :where([data-module="visits"]) .visits-history-entry { display: grid; gap: var(--space-2); padding: var(--space-3) 0; border-top: 1px solid var(--ui-border); }
 :where([data-module="visits"]) .visits-history-entry:first-child { border-top: 0; padding-top: 0; }

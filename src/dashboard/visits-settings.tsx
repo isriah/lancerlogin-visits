@@ -1,10 +1,13 @@
-// Settings > Guest Visits, for Admins: the guest page link, the host team's name and intro text, the reply-to address and a test email, and
-// Discord messages with the weekly summary. Sections use Core's settings section navigation, and leaving a section with
+// Settings > Guest Visits, for Admins: the guest page link, the host team's name and intro text, FIRST API credentials for
+// team lookup, the reply-to address and a test email, and Discord messages with the weekly summary. Sections use Core's settings section navigation, and leaving a section with
 // unsaved changes asks first.
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { SettingsSectionNavigation, routeWillChangeEvent, settingsSectionHref, usePath } from "@lancerlogin/module-sdk/dashboard";
-import { adminVisitsRoutes, type VisitsSettings, type VisitsSettingsUpdate, type VisitsStatus } from "../shared/visits-api.ts";
+import {
+  adminVisitsRoutes, type FirstApiCredentialRequest, type FirstApiProgram, type FirstApiStatus, type VisitsSettings, type VisitsSettingsUpdate, type VisitsStatus,
+} from "../shared/visits-api.ts";
 import { parseEmail } from "../shared/visits-booking.ts";
+import { firstApiPrograms, parseFirstCredential } from "../shared/visits-team-search.ts";
 import { defaultHostName, maximumHostNameLength, maximumIntroTextLength } from "../shared/visits-text.ts";
 import { isLocalTime, singleLine, weekdayNames } from "../shared/visits-time.ts";
 import { discordChannelPattern, guestPageLink, settingsUpdate, type FieldErrors } from "./visits-forms.ts";
@@ -12,7 +15,7 @@ import { failureOf, staffRequest } from "./visits-http.ts";
 import { formatInstant } from "./visits-local.ts";
 import { ConfirmDialog, Field, fieldAria, inPageLink, LoadState, Notice, preventImplicitSubmission, useFieldIds, useFocusRequest, type NoticeValue } from "./visits-ui";
 
-const sections = [["guest-page", "Guest page"], ["email", "Email"], ["discord", "Discord"]] as const;
+const sections = [["guest-page", "Guest page"], ["team-lookup", "Team lookup"], ["email", "Email"], ["discord", "Discord"]] as const;
 type Section = (typeof sections)[number][0];
 const isSection = (value: string | null): value is Section => sections.some(([id]) => id === value);
 const isSettings = (value: unknown): value is VisitsSettings => Boolean(value) && typeof value === "object" && typeof (value as VisitsSettings).revision === "number" && typeof (value as VisitsSettings).introText === "string";
@@ -79,13 +82,14 @@ export function VisitsSettingsPage({ openSetup }: { openSetup?: () => void }) {
 
   const props: SectionProps | undefined = settings && status ? { settings, status, save, onDirty: setDirty, navigate } : undefined;
   return <section className="settings-page visits-settings" aria-labelledby="visits-settings-title">
-    <div className="page-intro"><h1 id="visits-settings-title">Guest Visits</h1><p>The guest page, confirmation emails and Discord messages.</p></div>
+    <div className="page-intro"><h1 id="visits-settings-title">Guest Visits</h1><p>The guest page, team lookup, confirmation emails and Discord messages.</p></div>
     <div className="settings-section-toolbar">
       <SettingsSectionNavigation label="Guest Visits settings sections" pickerLabel="Guest Visits section" currentHref={settingsSectionHref(path, search, section)} navigate={navigate}
         sections={sections.map(([id, label]): [string, string] => [settingsSectionHref(path, search, id), label])} />
     </div>
     <LoadState loading={!props && !error} error={props ? "" : error} label="Guest Visits settings" onRetry={() => setVersion((value) => value + 1)} />
     {props && section === "guest-page" && <GuestPageSettings {...props} />}
+    {props && section === "team-lookup" && <TeamLookupSettings {...props} />}
     {props && section === "email" && <EmailSettings {...props} reload={() => setVersion((value) => value + 1)} />}
     {props && section === "discord" && <DiscordSettings {...props} />}
     {props && section === "guest-page" && openSetup && <article className="settings-callout">
@@ -167,6 +171,104 @@ function GuestPageSettings({ settings, status, save, onDirty }: SectionProps) {
       </form>
     </SettingsCard>
   </div>;
+}
+
+const firstApiRegistration: Readonly<Record<FirstApiProgram, string>> = {
+  FRC: "https://frc-events.firstinspires.org/services/API",
+  FTC: "https://ftc-events.firstinspires.org/services/API",
+};
+
+/** FIRST API credentials, one card per program. A token is sent once to be checked and saved, and never shown again. */
+function TeamLookupSettings({ status, onDirty }: SectionProps) {
+  const [lookup, setLookup] = useState<FirstApiStatus>();
+  const [error, setError] = useState("");
+  const [version, setVersion] = useState(0);
+  const [dirty, setDirty] = useState<Partial<Record<FirstApiProgram, boolean>>>({});
+  useEffect(() => { onDirty(Object.values(dirty).some(Boolean)); }, [dirty]);
+  useEffect(() => {
+    let active = true;
+    setError("");
+    void staffRequest<FirstApiStatus>(adminVisitsRoutes.firstApi)
+      .then((next) => { if (active) setLookup(next); })
+      .catch((caught) => { if (active) setError(failureOf(caught).message); });
+    return () => { active = false; };
+  }, [version]);
+
+  return <div className="visits-stack">
+    <SettingsCard id="visits-lookup-title" title="Team lookup" intro="When a guest enters a team number, Guest Visits looks it up in FIRST's FRC and FTC team lists to fill in the program and team name. Only the team number is sent to FIRST. FIRST LEGO League teams are entered by hand.">
+      <p>Each program needs a username and token from FIRST's Events API registration:{" "}
+        <a href={firstApiRegistration.FRC} target="_blank" rel="noopener">FRC Events API<span className="visually-hidden"> (opens in a new tab)</span></a> and{" "}
+        <a href={firstApiRegistration.FTC} target="_blank" rel="noopener">FTC Events API<span className="visually-hidden"> (opens in a new tab)</span></a>.
+        Without one, guests enter that program's teams by hand.</p>
+    </SettingsCard>
+    <LoadState loading={!lookup && !error} error={lookup ? "" : error} label="team lookup" onRetry={() => setVersion((value) => value + 1)} />
+    {lookup && firstApiPrograms.map((program) => <FirstCredentialCard key={program} program={program} current={lookup[program]} timeZone={status.timeZone} onChanged={setLookup}
+      onDirty={(value) => setDirty((current) => current[program] === value ? current : { ...current, [program]: value })} />)}
+  </div>;
+}
+
+function FirstCredentialCard({ program, current, timeZone, onChanged, onDirty }: {
+  program: FirstApiProgram; current: FirstApiStatus[FirstApiProgram]; timeZone: string; onChanged: (next: FirstApiStatus) => void; onDirty: (dirty: boolean) => void;
+}) {
+  const [username, setUsername] = useState(current.username);
+  const [token, setToken] = useState("");
+  const [removing, setRemoving] = useState(false);
+  const [removeBusy, setRemoveBusy] = useState(false);
+  const [removeError, setRemoveError] = useState("");
+  const saving = useSaving();
+  const ids = useFieldIds();
+  const focus = useFocusRequest();
+  const dirty = Boolean(token.trim()) || username.trim() !== current.username;
+  useEffect(() => { onDirty(dirty); }, [dirty]);
+  useEffect(() => { setUsername(current.username); }, [current.username, current.checkedAt]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const checked = parseFirstCredential({ program, username, token });
+    if (!checked.ok) { saving.setErrors({ [checked.field]: checked.error }); focus(ids(checked.field)); return; }
+    const request: FirstApiCredentialRequest = checked.value;
+    await saving.run(async () => {
+      const next = await staffRequest<FirstApiStatus>(adminVisitsRoutes.firstApi, { method: "PUT", body: request });
+      setToken("");
+      onChanged(next);
+    }, `FIRST accepted the ${program} username and token. Guests' ${program} team numbers are now looked up.`, ids, focus);
+  }
+  async function remove() {
+    setRemoveBusy(true); setRemoveError("");
+    try {
+      const next = await staffRequest<FirstApiStatus>(`${adminVisitsRoutes.firstApi}?${new URLSearchParams({ program })}`, { method: "DELETE" });
+      setRemoving(false);
+      setToken("");
+      onChanged(next);
+      saving.setNotice({ tone: "success", text: `The ${program} credential is removed. Guests enter ${program} teams by hand.` });
+    } catch (caught) { setRemoveError(failureOf(caught).message); }
+    finally { setRemoveBusy(false); }
+  }
+
+  return <SettingsCard id={`visits-first-${program.toLowerCase()}-title`} title={`${program} team lookup`} notice={saving.notice}>
+    <p className="ui-status settings-notice" data-tone={current.configured ? "success" : "neutral"} role="status">
+      {current.configured
+        ? `On for username ${current.username}.${current.checkedAt ? ` FIRST last accepted it ${formatInstant(Date.parse(current.checkedAt), timeZone)}.` : ""}`
+        : `Off. No ${program} credential is saved, so ${program} team numbers are not looked up.`}
+    </p>
+    <form className="ui-form visits-form" noValidate onSubmit={(event) => void submit(event)} onKeyDown={preventImplicitSubmission}>
+      <Field id={ids("username")} label="Username" error={saving.errors.username}>
+        <input {...fieldAria(ids("username"), saving.errors.username)} className="ui-control" autoComplete="off" spellCheck={false} maxLength={100} disabled={saving.busy} value={username}
+          onChange={(event) => { setUsername(event.target.value); saving.setErrors({}); }} />
+      </Field>
+      <Field id={ids("token")} label="Token" error={saving.errors.token} help={current.configured ? "The saved token is never shown. Enter it again to change the username or token." : "Saving checks the username and token with FIRST."}>
+        <input {...fieldAria(ids("token"), saving.errors.token, true)} className="ui-control" type="password" autoComplete="new-password" spellCheck={false} maxLength={200} disabled={saving.busy} value={token}
+          onChange={(event) => { setToken(event.target.value); saving.setErrors({}); }} />
+      </Field>
+      <div className="module-actions visits-row-actions">
+        <button className="ui-button ui-button--primary" type="submit" disabled={saving.busy}>{saving.busy ? "Checking with FIRST..." : `Save ${program} credential`}</button>
+        {current.configured && <button className="ui-button" type="button" aria-haspopup="dialog" disabled={saving.busy} onClick={() => { setRemoveError(""); setRemoving(true); }}>Remove</button>}
+      </div>
+    </form>
+    {removing && <ConfirmDialog title={`Remove the ${program} credential?`} confirmLabel={`Remove ${program} credential`} cancelLabel="Keep it" danger busy={removeBusy} error={removeError} onConfirm={() => void remove()} onClose={() => setRemoving(false)}>
+      <p>Guests' {program} team numbers are no longer looked up in FIRST's team list, and FIRST's saved answers for {program} are forgotten. Teams already saved in Guest Visits still fill in their names.</p>
+    </ConfirmDialog>}
+  </SettingsCard>;
 }
 
 function EmailSettings({ settings, status, save, onDirty, navigate, reload }: SectionProps & { reload: () => void }) {
@@ -255,7 +357,7 @@ function DiscordSettings({ settings, status, save, onDirty, navigate }: SectionP
     <p className="ui-status settings-notice" data-tone={status.discord.ready ? "success" : "warning"} role="status">
       {status.discord.ready ? "Core's Discord connection is ready." : <>Discord is not connected, so Guest Visits queues no Discord messages. Set up the bot in <a href="/settings/integrations" onClick={inPageLink(navigate, "/settings/integrations")}>Settings &gt; Integrations</a>.</>}
     </p>
-    <SettingsCard id="visits-discord-title" title="Discord messages" intro="Post a message for every booking, change and cancellation, and a weekly summary of upcoming visits. Contact details and notes are never posted." notice={saving.notice}>
+    <SettingsCard id="visits-discord-title" title="Discord messages" intro="Post a message for every booking, change and cancellation, and a weekly summary of upcoming visits. Contact details and team needs are never posted." notice={saving.notice}>
       <form className="ui-form visits-form" noValidate onSubmit={(event) => void submit(event)} onKeyDown={preventImplicitSubmission}>
         <fieldset className="visits-fieldset visits-fieldset--plain" disabled={saving.busy}>
           <legend className="visually-hidden">Discord messages</legend>

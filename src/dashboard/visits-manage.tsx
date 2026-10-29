@@ -8,7 +8,7 @@ import { isManageToken } from "../shared/visits-tokens.ts";
 import { formatShortDate, formatTime } from "../shared/visits-time.ts";
 import { validateVisitDraft, visitDraft, visitEdit, visitFieldOrder, type FieldErrors, type VisitDraft } from "./visits-forms.ts";
 import { failureOf, guestRequest } from "./visits-http.ts";
-import { teamText } from "./visits-labels.ts";
+import { teamNeedsHelp, teamNeedsLabel, teamText } from "./visits-labels.ts";
 import { arrivalChoices, defaultDeparture, departureChoices, formatTimeRange, formatVisitWhen, groupRangesByDate, localReading, peopleText, type LocalSpan } from "./visits-local.ts";
 import { ConfirmDialog, Field, fieldAria, firstProblem, inPageLink, Notice, preventImplicitSubmission, useFieldIds, useFocusRequest, type NoticeValue } from "./visits-ui";
 
@@ -149,7 +149,7 @@ function ManageVisit({ token, view, onNotice: setNotice, onView, onReload }: { t
         <div><dt>People</dt><dd>{peopleText(booking.headcount)}</dd></div>
         <div><dt>Contact</dt><dd>{booking.contactName}{booking.contactPhone ? `, ${booking.contactPhone}` : ""}</dd></div>
         <div><dt>Email</dt><dd className="visits-break">{booking.contactEmail}</dd></div>
-        {booking.note && <div><dt>Note</dt><dd className="visits-multiline">{booking.note}</dd></div>}
+        {booking.note && <div><dt>{teamNeedsLabel}</dt><dd className="visits-multiline">{booking.note}</dd></div>}
       </dl>
       <p className="field-help">To change the team or the email address, contact the team you are visiting.</p>
     </section>
@@ -188,8 +188,8 @@ function ManageVisit({ token, view, onNotice: setNotice, onView, onReload }: { t
           <Field id={ids("contactPhone")} label="Phone" optional error={errors.contactPhone}>
             <input {...fieldAria(ids("contactPhone"), errors.contactPhone)} className="ui-control" type="tel" autoComplete="tel" maxLength={40} value={draft.contactPhone} onChange={(event) => change("contactPhone", event.target.value)} />
           </Field>
-          <Field id={ids("note")} label="Note to the team" optional error={errors.note}>
-            <textarea {...fieldAria(ids("note"), errors.note)} className="ui-control" rows={3} maxLength={1000} value={draft.note} onChange={(event) => change("note", event.target.value)} />
+          <Field id={ids("note")} label={teamNeedsLabel} optional error={errors.note} help={teamNeedsHelp}>
+            <textarea {...fieldAria(ids("note"), errors.note, true)} className="ui-control" rows={3} maxLength={1000} value={draft.note} onChange={(event) => change("note", event.target.value)} />
           </Field>
         </fieldset>
         <div className="module-actions">

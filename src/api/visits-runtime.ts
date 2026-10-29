@@ -1,7 +1,8 @@
 // What every Guest Visits Worker handler shares: the dependencies Core supplies (civil time, time zone, clock, email,
-// Discord and Outreach), the request context shape, errors with the field they are about, request parsing, SQL guards
-// and the conversions between rows and the HTTP contract. Handlers take `(context, deps)` so tests run them without Core:
-// this file imports only type declarations from the module SDK, which are erased at run time.
+// Discord, Outreach, credential encryption and fetch), the request context shape, errors with the field they are about,
+// request parsing, SQL guards and the conversions between rows and the HTTP contract. Handlers take `(context, deps)` so
+// tests run them without Core: this file imports only type declarations from the module SDK, which are erased at run
+// time.
 import type { D1Database, D1Statement } from "@lancerlogin/module-sdk/api";
 import type { LocalVisitTimes, StaffWindow } from "../shared/visits-api.ts";
 import type { Attention, AttentionReason, BookableWindow, BookingDetails, TeamIdentity, VisitProgram } from "../shared/visits-booking.ts";
@@ -39,6 +40,16 @@ export type VisitsOutreachAccess = {
   providerStatus(error: unknown): number | undefined;
 };
 
+/** Core's credential encryption, for FIRST API tokens. Structurally the SDK's `services.credentials`. */
+export type VisitsCredentials = {
+  /** False where Core has no key to encrypt with. */
+  readonly available: boolean;
+  encrypt(value: Record<string, string>): Promise<{ readonly ciphertext: string; readonly iv: string }>;
+  decrypt(ciphertext: string, iv: string): Promise<Record<string, string>>;
+};
+/** The Worker's fetch, passed in so handlers never reach the network on their own. Only FIRST's team APIs are called. */
+export type VisitsFetch = (url: string, init: RequestInit) => Promise<Response>;
+
 /** Everything a handler needs from Core besides the request, so tests can pass stand-ins and a controlled clock. */
 export type VisitsDeps = {
   readonly civil: CivilTime;
@@ -48,6 +59,8 @@ export type VisitsDeps = {
   readonly email: VisitsEmailService;
   readonly discord: VisitsDiscordService;
   readonly outreach: VisitsOutreachAccess;
+  readonly credentials: VisitsCredentials;
+  readonly fetch: VisitsFetch;
   /** Where the dashboard is served, for manage links and the public origin check. */
   readonly dashboardOrigin: string | undefined;
 };

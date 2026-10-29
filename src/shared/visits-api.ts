@@ -10,6 +10,11 @@ export const publicVisitsRoutes = {
   calendar: "/public/visits/calendar",
   /** GET `?program=&number=`: the saved team name for a known team, so the form can fill it in. */
   team: "/public/visits/team",
+  /**
+   * GET `?number=`: `PublicTeamSearch`, the teams with that number in FIRST's FRC and FTC team lists (this season and the
+   * previous one) and in this installation's guest teams, so the form can confirm the program and name.
+   */
+  teamSearch: "/public/visits/team-search",
   /** POST `PublicBookingRequest`: book a visit. Replaying the same `submissionKey` returns the first result. */
   bookings: "/public/visits/bookings",
   /** POST `{ token }`: the booking an emailed link manages. */
@@ -80,6 +85,11 @@ export const adminVisitsRoutes = {
   settings: "/admin/visits/settings",
   /** POST `{ to }`: Admin only. */
   settingsTestEmail: "/admin/visits/settings/test-email",
+  /**
+   * GET: `FirstApiStatus`. PUT `FirstApiCredentialRequest`: check the credential with FIRST, then save it encrypted.
+   * DELETE `?program=FRC|FTC`: forget it. Admin only.
+   */
+  firstApi: "/admin/visits/settings/first-api",
 } as const;
 
 export type ApiError = { readonly error: string; readonly field?: string };
@@ -95,6 +105,21 @@ export type PublicCalendar = {
   readonly windows: readonly PublicWindow[];
 };
 export type PublicTeamLookup = { readonly team: TeamIdentity | null };
+/** A team with the searched number. `location` is "City, State" (or "City, Country") from FIRST, or empty. */
+export type TeamMatch = TeamIdentity & { readonly location: string; readonly source: "first" | "saved" };
+export type PublicTeamSearch = {
+  /** Distinct by program: FIRST's name wins over a saved guest team's, FRC first, then FTC, then the rest. */
+  readonly matches: readonly TeamMatch[];
+  /**
+   * False when FIRST was not asked for every program it covers (no credential for a program, a provider failure or the
+   * lookup limit), so a missing match may only mean "unknown"; the guest can still enter the team by hand.
+   */
+  readonly complete: boolean;
+};
+/** The programs FIRST's APIs can look up. FIRST LEGO League teams are entered by hand. */
+export type FirstApiProgram = "FRC" | "FTC";
+export type FirstApiStatus = { readonly [Program in FirstApiProgram]: { readonly configured: boolean; readonly username: string; readonly checkedAt: string | null } };
+export type FirstApiCredentialRequest = { readonly program: FirstApiProgram; readonly username: string; readonly token: string };
 export type PublicBookingRequest = {
   readonly teamNumber: string;
   readonly teamName: string;

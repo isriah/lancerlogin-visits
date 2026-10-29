@@ -1,7 +1,7 @@
 // Worker contribution. Handlers receive Core's module context and the module-scoped database; plugins never see the Worker
 // environment or Core credentials. This file only connects Core to the handlers in src/api: the civil-time helpers, the
-// installation time zone, the clock, Core's email and Discord services and its calls to Outreach's interface become the
-// handlers' `deps`, so the handlers themselves run in tests without Core. Storage handling comes from
+// installation time zone, the clock, Core's email, Discord and credential services, its calls to Outreach's interface
+// and fetch become the handlers' `deps`, so the handlers themselves run in tests without Core. Storage handling comes from
 // src/shared/visits-storage.ts.
 import { instantToCivil, resolveCivilTime } from "@lancerlogin/module-sdk";
 import {
@@ -45,6 +45,8 @@ function deps(db: D1Database, services: CoreModuleServices, dashboardOrigin: str
   return {
     civil, now: () => Date.now(), email: services.email, discord: services.discord, outreach: outreach(services, grantOnly), dashboardOrigin,
     timeZone: () => timeZone ??= installationTimeZone(db, installationId),
+    // FIRST API tokens are encrypted with Core's key. The Worker's own fetch reaches FIRST's team APIs, and nothing else.
+    credentials: services.credentials, fetch: (url, init) => fetch(url, init),
   };
 }
 

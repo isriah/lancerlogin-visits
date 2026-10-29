@@ -10,6 +10,7 @@ import {
 } from "./visits-bookings.ts";
 import { bookingScopes, listStaffBookings, staffBookingDetail, type BookingScope } from "./visits-queries.ts";
 import { readSettings, sendTestEmail, setupStatus, updateSettings, visitsSettings, visitsStatus } from "./visits-settings.ts";
+import { firstApiStatus, removeFirstCredential, saveFirstCredential, searchTeams } from "./visits-team-search.ts";
 import { ok, pathId, readBody, respondTo, revisionOf, VisitsError, type RouteResult, type VisitsDeps, type VisitsRole, type VisitsRouteContext } from "./visits-runtime.ts";
 
 type Input = { readonly userId: string; readonly body: unknown; readonly url: URL; readonly origin: string | undefined };
@@ -47,6 +48,7 @@ function publicRoute(db: VisitsRouteContext["db"], deps: VisitsDeps, path: strin
   switch (path) {
     case publicVisitsRoutes.calendar: return { roles: none, methods: { GET: async () => ok(await publicCalendar(db, deps)) } };
     case publicVisitsRoutes.team: return { roles: none, methods: { GET: async ({ url }) => ok(await lookupTeam(db, url)) } };
+    case publicVisitsRoutes.teamSearch: return { roles: none, methods: { GET: async ({ url }) => ok(await searchTeams(db, deps, url)) } };
     case publicVisitsRoutes.bookings: return { roles: none, methods: { POST: ({ body, origin }) => bookVisit(db, deps, body, origin) } };
     case publicVisitsRoutes.manage: return { roles: none, methods: { POST: ({ body }) => manageShow(db, deps, body) } };
     case publicVisitsRoutes.manageUpdate: return { roles: none, methods: { POST: ({ body, origin }) => manageUpdate(db, deps, body, origin) } };
@@ -97,7 +99,13 @@ function adminRoute(db: VisitsRouteContext["db"], deps: VisitsDeps, path: string
       default: return undefined;
     }
   }
-  if (first === "settings") return second === "test-email" && third === undefined ? { roles: admin, methods: { POST: ({ body }) => sendTestEmail(db, deps, body) } } : undefined;
+  if (first === "settings") {
+    if (third !== undefined) return undefined;
+    if (second === "test-email") return { roles: admin, methods: { POST: ({ body }) => sendTestEmail(db, deps, body) } };
+    return second === "first-api"
+      ? { roles: admin, methods: { GET: async () => ok(await firstApiStatus(db)), PUT: ({ body }) => saveFirstCredential(db, deps, body), DELETE: ({ url }) => removeFirstCredential(db, url) } }
+      : undefined;
+  }
   const id = pathId(second);
   switch (`${first}/${third ?? ""}`) {
     case "series/": return { roles: staff, methods: { PUT: ({ body }) => updateSeries(db, deps, id, body), DELETE: ({ url }) => removeSeries(db, deps, id, revisionOf(url.searchParams.get("revision"))) } };

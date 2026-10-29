@@ -64,6 +64,8 @@ test("a booking without an email address or with bad fields is refused with the 
   ];
   for (const [change, field] of cases) assert.equal(failure(parseBookingInput({ ...body, ...change })).field, field, JSON.stringify(change));
   assert.equal(failure(parseBookingInput("teamNumber=1234")).field, "");
+  assert.equal(failure(parseBookingInput({ ...body, note: "x".repeat(1001) })).error, "Team needs are at most 1000 characters");
+  assert.equal(failure(parseBookingInput({ ...body, note: 12 })).error, "Enter team needs as text");
 });
 
 test("team numbers are normalized per program", () => {

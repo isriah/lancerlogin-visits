@@ -41,6 +41,7 @@ const manifest = {
     tables: [
       "visits_settings", "visits_availability_series", "visits_windows", "visits_teams", "visits_bookings", "visits_booking_revisions",
       "visits_manage_tokens", "visits_public_submission_keys", "visits_email_limits", "visits_notifications",
+      "visits_first_credentials", "visits_first_seasons", "visits_first_teams", "visits_first_requests",
     ],
     sharedFields: [],
     transientAuthority: [
@@ -52,20 +53,26 @@ const manifest = {
     version: 1,
     tables: ["visits_settings", "visits_availability_series", "visits_windows", "visits_teams", "visits_bookings", "visits_booking_revisions", "visits_notifications"],
     // A restore drops every manage link, guest submission key and daily email count. Staff resend confirmations afterwards.
-    nonPortableTables: ["visits_manage_tokens", "visits_public_submission_keys", "visits_email_limits"],
+    // FIRST API credentials and lookup caches are never in a backup either; an Admin saves the credentials again.
+    nonPortableTables: [
+      "visits_manage_tokens", "visits_public_submission_keys", "visits_email_limits",
+      "visits_first_credentials", "visits_first_seasons", "visits_first_teams", "visits_first_requests",
+    ],
   },
   lifecycle: {
     cleanupTargets: [
       "visits_notifications", "visits_manage_tokens", "visits_public_submission_keys", "visits_email_limits", "visits_booking_revisions",
       "visits_bookings", "visits_teams", "visits_windows", "visits_availability_series", "visits_settings",
       "platform_module_setup_progress:visits", "platform_module_assignments:visits",
+      "visits_first_credentials", "visits_first_seasons", "visits_first_teams", "visits_first_requests",
     ],
   },
   deletedData: [
     "Guest visit availability: repeating and one-off windows",
-    "Guest teams, visits, contact details, notes and change history",
+    "Guest teams, visits, contact details, team needs and change history",
     "Guest Visits settings, queued emails, Discord messages and Outreach work, manage links and email counts",
     "Guest Visits setup and assignment records",
+    "FIRST API usernames and tokens for team lookup, and cached FIRST team answers",
   ],
 } as const;
 

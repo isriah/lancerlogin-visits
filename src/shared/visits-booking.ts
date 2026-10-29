@@ -148,9 +148,9 @@ export function parseHeadcount(value: unknown, field = "headcount"): Result<numb
 /** Validate an optional note to staff. Line breaks are kept. */
 export function parseNote(value: unknown, field = "note"): Result<string> {
   if (value === undefined || value === null) return ok("");
-  if (typeof value !== "string") return problem(field, "Enter the note as text");
+  if (typeof value !== "string") return problem(field, "Enter team needs as text");
   const note = multiLine(value);
-  if (note.length > maximumNoteLength) return problem(field, `Notes are at most ${maximumNoteLength} characters`);
+  if (note.length > maximumNoteLength) return problem(field, `Team needs are at most ${maximumNoteLength} characters`);
   return ok(note);
 }
 

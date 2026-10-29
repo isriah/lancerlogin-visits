@@ -10,7 +10,7 @@ import { staffVisitDraft, staffVisitEdit, validateStaffVisitDraft, visitFieldOrd
 import { aborted, failureOf, staffRequest } from "./visits-http.ts";
 import {
   attentionNotes, bookingBadges, canMarkHandled, canRecordInOutreach, describeChange, historyActionText, historyActorText, historyNewestFirst, outreachRecordSummary,
-  outreachResultText, sortBookings, sortTeams, teamText, type Tone,
+  outreachResultText, sortBookings, sortTeams, teamNeedsLabel, teamText, type Tone,
 } from "./visits-labels.ts";
 import { formatInstant, formatTimeRange, formatVisitWhen, groupByDate, peopleText } from "./visits-local.ts";
 import { Badges, ConfirmDialog, Field, fieldAria, firstProblem, LoadState, Notice, preventImplicitSubmission, useFieldIds, useFocusRequest, VisitsDialog, type NoticeValue } from "./visits-ui";
@@ -23,8 +23,8 @@ type Dialog = { readonly kind: "edit" | "history" | "cancel" | "remove"; readonl
 const listScopes: readonly (readonly [ListScope, string])[] = [["upcoming", "Upcoming"], ["past", "Past"], ["removed", "Removed"]];
 const titles: Readonly<Record<Scope, string>> = { upcoming: "Upcoming visits", past: "Past visits", removed: "Removed visits", attention: "Needs attention" };
 const descriptions: Readonly<Record<Scope, string>> = {
-  upcoming: "Contact details and notes are visible to staff only.",
-  past: "Contact details and notes are visible to staff only.",
+  upcoming: "Contact details and team needs are visible to staff only.",
+  past: "Contact details and team needs are visible to staff only.",
   removed: "Removed visits are hidden from the guest page and the other lists, and their teams were not emailed. Open a visit's history to restore it.",
   attention: "Visits whose window changed, emails that failed or wait, and Outreach records to check. Mark each handled after contacting the team.",
 };
@@ -169,7 +169,7 @@ function BookingCard({ booking, mode, outreach, result, busy, actions }: { booki
       <div><dt>People</dt><dd>{peopleText(booking.headcount)}</dd></div>
       <div><dt>Contact</dt><dd>{booking.contactName}{booking.contactPhone && <>, <a href={`tel:${booking.contactPhone.replace(/[^\d+]/g, "")}`}>{booking.contactPhone}</a></>}</dd></div>
       <div><dt>Email</dt><dd className="visits-break"><a href={`mailto:${booking.contactEmail}`}>{booking.contactEmail}</a></dd></div>
-      {booking.note && <div className="visits-details-wide"><dt>Note</dt><dd className="visits-multiline">{booking.note}</dd></div>}
+      {booking.note && <div className="visits-details-wide"><dt>{teamNeedsLabel}</dt><dd className="visits-multiline">{booking.note}</dd></div>}
     </dl>
     {booking.removed ? <div className="module-actions visits-row-actions">
       <button className="ui-button" type="button" aria-haspopup="dialog" disabled={busy} onClick={() => actions.history(booking)}>History and restore<span className="visually-hidden"> {team}</span></button>
@@ -264,7 +264,7 @@ function EditVisitDialog({ booking, teams, timeZone, onSaved, onClose }: { booki
         <Field id={ids("headcount")} label="People coming" error={errors.headcount}>
           <input {...fieldAria(ids("headcount"), errors.headcount)} className="ui-control visits-number" type="number" inputMode="numeric" min={1} max={100} step={1} value={draft.headcount} onChange={(event) => change("headcount", event.target.value)} />
         </Field>
-        <Field id={ids("note")} label="Note" optional error={errors.note}>
+        <Field id={ids("note")} label={teamNeedsLabel} optional error={errors.note}>
           <textarea {...fieldAria(ids("note"), errors.note)} className="ui-control" rows={3} maxLength={1000} value={draft.note} onChange={(event) => change("note", event.target.value)} />
         </Field>
       </fieldset>

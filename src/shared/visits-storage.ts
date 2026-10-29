@@ -1,6 +1,6 @@
-// Storage declarations for migrations/0001_create_visits_tables.sql: which tables are portable, their backup columns,
-// retained-data cleanup and restore handling. The manifest and Worker contribution declare exactly these, and the SQL
-// tests check them against the migration.
+// Storage declarations for the tables in migrations/: which tables are portable, their backup columns, retained-data
+// cleanup and restore handling. The manifest and Worker contribution declare exactly these, and the SQL tests check them
+// against the migrations.
 
 /** LancerLogin installations store their rows under one installation ID. */
 export const installationId = "primary";
@@ -20,15 +20,19 @@ export type VisitsPortableTable = keyof typeof visitsBackupColumns;
 export const visitsPortableTables = Object.keys(visitsBackupColumns) as VisitsPortableTable[];
 
 /**
- * Operational state a restore drops: every manage link (staff resend confirmations afterwards), guest submission keys and
- * the daily email counts.
+ * Operational state a restore drops: every manage link (staff resend confirmations afterwards), guest submission keys,
+ * the daily email counts, the FIRST API credentials (an Admin saves them again) and FIRST lookup caches and limits.
  */
-export const visitsNonPortableTables = ["visits_manage_tokens", "visits_public_submission_keys", "visits_email_limits"] as const;
+export const visitsNonPortableTables = [
+  "visits_manage_tokens", "visits_public_submission_keys", "visits_email_limits",
+  "visits_first_credentials", "visits_first_seasons", "visits_first_teams", "visits_first_requests",
+] as const;
 
-/** Every table, in the order the migration creates them. */
+/** Every table, in the order the migrations create them. */
 export const visitsTables = [
   "visits_settings", "visits_availability_series", "visits_windows", "visits_teams", "visits_bookings", "visits_booking_revisions",
   "visits_manage_tokens", "visits_public_submission_keys", "visits_email_limits", "visits_notifications",
+  "visits_first_credentials", "visits_first_seasons", "visits_first_teams", "visits_first_requests",
 ] as const;
 
 /**
@@ -61,6 +65,11 @@ export const visitsCleanupSteps: readonly VisitsCleanupStep[] = [
   { kind: "delete", table: "visits_settings" },
   { kind: "delete", table: "platform_module_setup_progress", where: "module_id=?", bindings: [moduleId] },
   { kind: "assignments" },
+  // Appended for team lookup (migration 0002), after the original steps.
+  { kind: "delete", table: "visits_first_credentials" },
+  { kind: "delete", table: "visits_first_seasons" },
+  { kind: "delete", table: "visits_first_teams" },
+  { kind: "delete", table: "visits_first_requests" },
 ];
 
 /** The manifest's cleanup targets for the steps above. */
@@ -68,6 +77,7 @@ export const visitsCleanupTargets = [
   "visits_notifications", "visits_manage_tokens", "visits_public_submission_keys", "visits_email_limits", "visits_booking_revisions",
   "visits_bookings", "visits_teams", "visits_windows", "visits_availability_series", "visits_settings",
   `platform_module_setup_progress:${moduleId}`, `platform_module_assignments:${moduleId}`,
+  "visits_first_credentials", "visits_first_seasons", "visits_first_teams", "visits_first_requests",
 ] as const;
 
 /** Cleanup waits while a notification is mid-send under a live lease. Binds the installation ID once. */

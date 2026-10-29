@@ -69,14 +69,19 @@ export function Badges({ badges }: { badges: readonly Badge[] }) {
   return <ul className="visits-badges">{badges.map((badge) => <li key={badge.label}><span className="ui-status visits-badge" data-tone={badge.tone}>{badge.label}</span></li>)}</ul>;
 }
 
-/** A modal dialog with Core's dialog classes. Escape and the close button call `onClose` unless `busy`. */
-export function VisitsDialog({ title, description, busy = false, onClose, children, wide = false }: { title: string; description?: ReactNode; busy?: boolean; onClose: () => void; children: ReactNode; wide?: boolean }) {
+/**
+ * A modal dialog with Core's dialog classes. Escape and the close button call `onClose` unless `busy`; with
+ * `dismissOnBackdrop`, so does a press outside the dialog. `className` adds a layout class such as the guest page's sheet.
+ */
+export function VisitsDialog({ title, description, busy = false, onClose, children, wide = false, className = "", dismissOnBackdrop = false }: {
+  title: string; description?: ReactNode; busy?: boolean; onClose: () => void; children: ReactNode; wide?: boolean; className?: string; dismissOnBackdrop?: boolean;
+}) {
   const dialog = useRef<HTMLElement>(null);
   const id = useId();
   const close = () => { if (!busy) onClose(); };
   useModalFocus(dialog, true, busy, close);
-  return <div className="dialog-backdrop">
-    <section ref={dialog} className={`meeting-management-dialog ui-dialog visits-dialog${wide ? " visits-dialog--wide" : ""}`} role="dialog" aria-modal="true" aria-labelledby={`${id}title`} aria-describedby={description ? `${id}description` : undefined} tabIndex={-1}>
+  return <div className="dialog-backdrop" onMouseDown={dismissOnBackdrop ? (event) => { if (event.target === event.currentTarget) close(); } : undefined}>
+    <section ref={dialog} className={`meeting-management-dialog ui-dialog visits-dialog${wide ? " visits-dialog--wide" : ""}${className ? ` ${className}` : ""}`} role="dialog" aria-modal="true" aria-labelledby={`${id}title`} aria-describedby={description ? `${id}description` : undefined} tabIndex={-1}>
       <div className="dialog-heading">
         <div><h2 id={`${id}title`}>{title}</h2>{description && <p id={`${id}description`}>{description}</p>}</div>
         <button className="ui-button" type="button" aria-label={`Close ${title}`} disabled={busy} onClick={close}><span aria-hidden="true">×</span></button>
