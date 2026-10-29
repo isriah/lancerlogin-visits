@@ -4,4 +4,5 @@ Every stable or beta release tag has a matching `vX.Y.Z.md` or `vX.Y.Z-beta.N.md
 
 List each release below as `- [vX.Y.Z](vX.Y.Z.md) - one-line summary`.
 
+- [v0.2.0](v0.2.0.md) - Book from a month calendar
 - [v0.1.0](v0.1.0.md) - First release: guest visit booking, manage links, staff workspace, Discord summary and the Outreach link
