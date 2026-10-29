@@ -72,11 +72,18 @@ export function migrationFiles(): { readonly name: string; readonly sql: string 
   return readdirSync(migrationsDirectory).filter((name) => name.endsWith(".sql")).sort().map((name) => ({ name, sql: readFileSync(new URL(name, migrationsDirectory), "utf8") }));
 }
 
+/** Apply one migration in its own transaction, as Core applies one atomic batch per migration. */
+export function applyMigration(db: TestDatabase, migration: { readonly name: string; readonly sql: string }): void {
+  db.sqlite.exec("BEGIN");
+  try { db.sqlite.exec(migration.sql); db.sqlite.exec("COMMIT"); } catch (error) { db.sqlite.exec("ROLLBACK"); throw new Error(`${migration.name} failed: ${(error as Error).message}`); }
+}
+
 /**
- * A fresh in-memory database with Core stand-ins and every plugin migration applied, each in its own transaction as
- * Core applies one atomic batch per migration. Installation "primary" and user "user-1" exist.
+ * A fresh in-memory database with Core stand-ins and the plugin's migrations applied, each in its own transaction as
+ * Core applies one atomic batch per migration: every one, or those up to and including `through`, so a test can apply
+ * the next one over existing rows. Installation "primary" and user "user-1" exist.
  */
-export function createTestDatabase(): TestDatabase {
+export function createTestDatabase(options: { readonly through?: string } = {}): TestDatabase {
   const sqlite = new DatabaseSync(":memory:", { enableForeignKeyConstraints: true });
   sqlite.exec(`
     CREATE TABLE installations (id TEXT PRIMARY KEY NOT NULL, created_at TEXT NOT NULL DEFAULT '2026-01-01T00:00:00.000Z');
@@ -84,9 +91,10 @@ export function createTestDatabase(): TestDatabase {
     INSERT INTO installations(id) VALUES ('primary');
     INSERT INTO users(id, installation_id) VALUES ('user-1', 'primary');
   `);
-  for (const migration of migrationFiles()) {
-    sqlite.exec("BEGIN");
-    try { sqlite.exec(migration.sql); sqlite.exec("COMMIT"); } catch (error) { sqlite.exec("ROLLBACK"); throw new Error(`${migration.name} failed: ${(error as Error).message}`); }
-  }
-  return new TestDatabase(sqlite);
+  const db = new TestDatabase(sqlite);
+  const files = migrationFiles();
+  const last = options.through === undefined ? files.length - 1 : files.findIndex((file) => file.name === options.through);
+  if (last < 0) throw new Error(`No migration ${options.through}`);
+  for (const migration of files.slice(0, last + 1)) applyMigration(db, migration);
+  return db;
 }

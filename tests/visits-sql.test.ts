@@ -2,13 +2,13 @@
 // triggers, cleanup order, backup columns and the indexes the Worker's queries rely on.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createTestDatabase, migrationFiles, type TestDatabase } from "./helpers/d1.ts";
+import { applyMigration, createTestDatabase, migrationFiles, type TestDatabase } from "./helpers/d1.ts";
 import {
   bookingRow, hash, insert, insertStatement, notificationRow, revisionRow, seedBooking, seriesRow, settingsRow, submissionKeyRow, teamRow, tokenRow,
   windowEnd, windowRow, windowStart,
 } from "./helpers/rows.ts";
 import {
-  defaultSettingsSql, neutralizeVisitsBackup, pausedVisitsOperations, visitsBackupColumns, visitsCleanupBlockerSql, visitsCleanupSteps, visitsTables,
+  defaultSettingsSql, neutralizeVisitsBackup, normalizeVisitsBackup, pausedVisitsOperations, visitsBackupColumns, visitsCleanupBlockerSql, visitsCleanupSteps, visitsTables,
 } from "../src/shared/visits-storage.ts";
 
 const check = /CHECK constraint failed/;
@@ -168,6 +168,8 @@ test("bookings check their fields and reference their window and team", async ()
   ];
   for (const [index, values] of bad.entries()) await assert.rejects(insert(db, "visits_bookings", bookingRow({ id: `bad-${index}`, ...values })), check, JSON.stringify(values));
   await insert(db, "visits_bookings", bookingRow({ attention: "needed", attention_reason: "window-canceled" }));
+  // The headcount is optional: null when the guest did not give one.
+  await insert(db, "visits_bookings", bookingRow({ id: "booking-unknown", headcount: null }));
   // Any number of visits may overlap.
   await insert(db, "visits_bookings", bookingRow({ id: "booking-2" }));
 });
@@ -351,4 +353,63 @@ test("a backup round trip restores portable rows, pauses pending work and drops 
   ]);
   for (const table of ["visits_manage_tokens", "visits_public_submission_keys", "visits_email_limits"]) assert.equal(target.rows(`SELECT 1 FROM ${table}`).length, 0, table);
   assert.equal(target.rows("SELECT 1 FROM visits_bookings").length, 1);
+});
+
+test("migration 0003 makes the headcount optional over existing rows: every row, its history, links and work stay", async () => {
+  const db = createTestDatabase({ through: "0002_create_visits_first_tables.sql" });
+  await populate(db);
+  await insert(db, "visits_bookings", bookingRow({ id: "booking-2", headcount: 1, note: "Small group", revision: 3 }));
+  await assert.rejects(insert(db, "visits_bookings", bookingRow({ id: "booking-null", headcount: null })), /NOT NULL constraint failed/, "before 0003 a headcount is required");
+  const before = db.rows("SELECT * FROM visits_bookings ORDER BY id");
+  const children = () => ["visits_booking_revisions", "visits_manage_tokens", "visits_public_submission_keys", "visits_notifications"].map((table) => db.rows(`SELECT * FROM ${table}`));
+  const kept = children();
+  applyMigration(db, migrationFiles().find((file) => file.name === "0003_optional_headcount.sql")!);
+  // The same rows with the same values; only the column order moved, headcount now last.
+  assert.deepEqual(db.rows("SELECT * FROM visits_bookings ORDER BY id"), before);
+  assert.deepEqual(columns(db, "visits_bookings").at(-1), "headcount");
+  assert.deepEqual(children(), kept, "no cascade: history, manage links, submission keys and notifications are untouched");
+  assert.deepEqual(db.rows("PRAGMA foreign_key_check"), []);
+  assert.deepEqual(db.rows("SELECT headcount_required FROM visits_settings"), [{ headcount_required: 0 }], "Require headcount starts off");
+  // Null is allowed; a given headcount is still a whole number from 1 to 100.
+  await insert(db, "visits_bookings", bookingRow({ id: "booking-null", headcount: null }));
+  for (const [index, headcount] of [0, 101, 2.5, "twelve"].entries()) await assert.rejects(insert(db, "visits_bookings", bookingRow({ id: `bad-${index}`, headcount })), check, String(headcount));
+  // The revision trigger is back and still covers the headcount, including clearing it.
+  await assert.rejects(db.prepare("UPDATE visits_bookings SET headcount=NULL WHERE id='booking-1'").run(), /visits_booking_revision/);
+  await db.prepare("UPDATE visits_bookings SET headcount=NULL,revision=revision+1 WHERE id='booking-1'").run();
+  await assert.rejects(db.prepare("UPDATE visits_bookings SET headcount=5 WHERE id='booking-1'").run(), /visits_booking_revision/);
+  await db.prepare("UPDATE visits_bookings SET attention='needed',attention_reason='window-changed' WHERE id='booking-1'").run();
+  assert.deepEqual(db.rows("SELECT headcount, revision FROM visits_bookings WHERE id='booking-1'"), [{ headcount: null, revision: 1 }]);
+  assert.deepEqual(db.rows("SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name='visits_bookings'"), [{ name: "visits_bookings_revision" }]);
+  // Cascades still work: removing the booking takes its children with it.
+  db.exec("DELETE FROM visits_bookings WHERE id='booking-1'");
+  for (const table of ["visits_booking_revisions", "visits_manage_tokens", "visits_public_submission_keys", "visits_notifications"]) assert.equal(db.rows(`SELECT 1 FROM ${table}`).length, 0, table);
+  await assert.rejects(db.prepare("UPDATE visits_settings SET headcount_required=2").run(), check);
+  await db.prepare("UPDATE visits_settings SET headcount_required=1").run();
+});
+
+test("a backup round trip keeps an unknown headcount and the Require headcount setting", async () => {
+  const source = createTestDatabase();
+  await populate(source);
+  await source.prepare("UPDATE visits_settings SET headcount_required=1").run();
+  await insert(source, "visits_bookings", bookingRow({ id: "booking-unknown", headcount: null }));
+  const exported = Object.fromEntries(Object.entries(visitsBackupColumns).map(([table, list]) => [table, source.rows(`SELECT ${list.join(",")} FROM ${table}`)]));
+  const target = createTestDatabase();
+  await target.batch(Object.entries(neutralizeVisitsBackup(exported)).flatMap(([table, rows]) => rows.map((row) => insertStatement(target, table, row))));
+  assert.deepEqual(target.rows("SELECT id, headcount FROM visits_bookings ORDER BY id"), [{ id: "booking-1", headcount: 12 }, { id: "booking-unknown", headcount: null }]);
+  assert.deepEqual(target.rows("SELECT headcount_required FROM visits_settings"), [{ headcount_required: 1 }]);
+});
+
+test("a version 1 backup, made before headcount became optional, restores with Require headcount off", async () => {
+  // Version 1 rows: settings without headcount_required, every visit with a headcount.
+  const old = createTestDatabase({ through: "0002_create_visits_first_tables.sql" });
+  await populate(old);
+  const version1Columns = { ...visitsBackupColumns, visits_settings: visitsBackupColumns.visits_settings.filter((column) => column !== "headcount_required") };
+  const exported = Object.fromEntries(Object.entries(version1Columns).map(([table, list]) => [table, old.rows(`SELECT ${list.join(",")} FROM ${table}`)]));
+  const normalized = normalizeVisitsBackup(exported, 1);
+  for (const [table, list] of Object.entries(visitsBackupColumns)) for (const row of normalized[table]!) assert.deepEqual(Object.keys(row).sort(), [...list].sort(), table);
+  const target = createTestDatabase();
+  await target.batch(Object.entries(neutralizeVisitsBackup(normalized)).flatMap(([table, rows]) => rows.map((row) => insertStatement(target, table, row))));
+  assert.deepEqual(target.rows("SELECT headcount_required FROM visits_settings"), [{ headcount_required: 0 }]);
+  assert.deepEqual(target.rows("SELECT id, headcount FROM visits_bookings"), [{ id: "booking-1", headcount: 12 }]);
+  assert.throws(() => normalizeVisitsBackup(exported, 3), RangeError, "a version it does not know is refused");
 });

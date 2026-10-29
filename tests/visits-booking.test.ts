@@ -4,7 +4,7 @@ import { at, civil, newYork } from "./helpers/civil-time.ts";
 import {
   applyGuestCancel, applyGuestEdit, bookingFingerprintText, bookingRevisionRow, checkGuestVisit, diffBooking, findFittingWindow, handledAttention,
   maximumHeadcount, nextAttention, noAttention, outreachActivityKeptAttention, outreachProgram, parseBookingInput, parseBookingSnapshot, parseEmail,
-  parseGuestEdit, parseHeadcount, parsePhone, parseTeamNumber, programLabels, publicVisit, publicWindows, resolveVisitTimes, submissionOutcome,
+  headcountRequiredProblem, parseGuestEdit, parseHeadcount, parseOptionalHeadcount, parsePhone, parseTeamNumber, programLabels, publicVisit, publicWindows, resolveVisitTimes, submissionOutcome,
   teamLabel, visitPrograms, windowAttentionReason, type BookableWindow, type StoredBooking, type TeamIdentity,
 } from "../src/shared/visits-booking.ts";
 
@@ -232,4 +232,39 @@ test("a submission key replays its booking and refuses different details", () =>
   assert.deepEqual(submissionOutcome(null, "f1"), { kind: "new" });
   assert.deepEqual(submissionOutcome({ fingerprint: "f1", bookingId: "booking-1" }, "f1"), { kind: "replay", bookingId: "booking-1" });
   assert.deepEqual(submissionOutcome({ fingerprint: "f1", bookingId: "booking-1" }, "f2"), { kind: "conflict" });
+});
+
+test("the headcount is optional: left out, null or empty means not given, and a given one is still 1 to 100", () => {
+  const { headcount: _given, ...rest } = body;
+  for (const missing of [rest, { ...rest, headcount: null }, { ...rest, headcount: " " }]) {
+    const parsed = parseBookingInput(missing);
+    assert.ok(parsed.ok, JSON.stringify(parsed));
+    assert.equal(parsed.value.headcount, null);
+  }
+  for (const headcount of [0, 101, 2.5, "ten", true]) assert.equal(parseBookingInput({ ...body, headcount }).ok, false, String(headcount));
+  assert.deepEqual(parseOptionalHeadcount(undefined), { ok: true, value: null });
+  assert.deepEqual(parseOptionalHeadcount(" 7 "), { ok: true, value: 7 });
+  assert.deepEqual(parseOptionalHeadcount(0), { ok: false, field: "headcount", error: "Visits are for 1 to 100 people" });
+  assert.deepEqual(headcountRequiredProblem, { ok: false, field: "headcount", error: "Enter how many people are coming" });
+  // A guest edit can clear it.
+  const cleared = parseGuestEdit({ revision: 2, headcount: null });
+  assert.ok(cleared.ok && cleared.value.headcount === null);
+  assert.equal(parseGuestEdit({ revision: 2, headcount: 0 }).ok, false);
+});
+
+test("history snapshots and fingerprints carry an unknown headcount; older snapshots with one still read", () => {
+  const unknown = { windowId: "mon", teamId: "t1", contactName: "Pat", contactEmail: "pat@example.org", contactPhone: "", arrivalMs: 0, departureMs: hour, headcount: null, note: "", status: "booked" as const };
+  const parsed = parseBookingSnapshot(JSON.stringify(unknown));
+  assert.ok(parsed.ok && parsed.value.headcount === null, JSON.stringify(parsed));
+  assert.ok(parseBookingSnapshot(JSON.stringify({ ...unknown, headcount: 12 })).ok);
+  assert.equal(parseBookingSnapshot(JSON.stringify({ ...unknown, headcount: "12" })).ok, false);
+  const { headcount: _left, ...withoutHeadcount } = unknown;
+  assert.equal(parseBookingSnapshot(JSON.stringify(withoutHeadcount)).ok, false, "a snapshot must say whether it has a headcount");
+  assert.deepEqual(diffBooking({ ...unknown, headcount: 4 }, unknown), [{ field: "headcount", from: 4, to: null }]);
+  const { headcount: _h, ...rest } = body;
+  const without = parseBookingInput(rest);
+  const withCount = parseBookingInput(body);
+  assert.ok(without.ok && withCount.ok);
+  assert.notEqual(bookingFingerprintText(without.value), bookingFingerprintText(withCount.value), "a submission key reused with a headcount added is another booking");
+  assert.equal(publicVisit({ arrivalMs: 0, departureMs: hour, headcount: null }, { number: "1", name: "One", program: "FRC" }).headcount, null);
 });

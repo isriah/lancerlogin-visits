@@ -222,7 +222,7 @@ test("roles and origins: staff routes for Admins and Operators, settings for Adm
 test("Admins change settings with the current revision; Discord needs a channel; the guest page shows the intro", async () => {
   const harness = visitsHarness();
   const initial = (await harness.call("GET", "/admin/visits/settings")).body;
-  assert.deepEqual(initial, { revision: 0, hostName: "", introText: "", replyTo: "", testEmailSentMs: null, discordEnabled: false, discordChannelId: "", weeklySummaryEnabled: true, weeklySummaryWeekday: 1, weeklySummaryTime: "12:00" });
+  assert.deepEqual(initial, { revision: 0, hostName: "", introText: "", replyTo: "", testEmailSentMs: null, discordEnabled: false, discordChannelId: "", weeklySummaryEnabled: true, weeklySummaryWeekday: 1, weeklySummaryTime: "12:00", headcountRequired: false });
   assert.equal((await harness.call("PUT", "/admin/visits/settings", { body: { revision: 0, discordEnabled: true } })).body.field, "discordChannelId");
   assert.equal((await harness.call("PUT", "/admin/visits/settings", { body: { revision: 0, replyTo: "nope" } })).body.field, "replyTo");
   assert.equal((await harness.call("PUT", "/admin/visits/settings", { body: { revision: 0, weeklySummaryTime: "25:00" } })).body.field, "weeklySummaryTime");
@@ -297,17 +297,17 @@ test("the host team's name from settings heads the guest page and names the host
   const first = await book(harness);
   assert.equal(harness.email.sent[0]!.subject, "Your visit to our team on Monday, November 2");
   assert.equal((await harness.call("GET", "/public/visits/calendar", { role: null })).body.hostName, "");
-  const saved = await harness.call("PUT", "/admin/visits/settings", { body: { revision: 0, hostName: "  FRC 321\r\nLancers " } });
+  const saved = await harness.call("PUT", "/admin/visits/settings", { body: { revision: 0, hostName: "  FRC 321\r\nRoboLancers " } });
   assert.equal(saved.status, 200);
-  assert.equal(saved.body.hostName, "FRC 321 Lancers");
-  assert.equal((await harness.call("GET", "/public/visits/calendar", { role: null })).body.hostName, "FRC 321 Lancers");
+  assert.equal(saved.body.hostName, "FRC 321 RoboLancers");
+  assert.equal((await harness.call("GET", "/public/visits/calendar", { role: null })).body.hostName, "FRC 321 RoboLancers");
   const token = FakeEmail.token(harness.email.sent[0]!);
-  assert.equal((await harness.call("POST", "/public/visits/manage", { body: { token }, role: null })).body.hostName, "FRC 321 Lancers");
+  assert.equal((await harness.call("POST", "/public/visits/manage", { body: { token }, role: null })).body.hostName, "FRC 321 RoboLancers");
   // Every later email names the host in its subject and text, HTML-escaped in its HTML.
   await harness.call("PUT", `/admin/visits/bookings/${first.id}`, { body: { revision: 0, headcount: 14 } });
   const update = harness.email.sent.at(-1)!;
-  assert.equal(update.subject, "Updated: your visit to FRC 321 Lancers on Monday, November 2");
-  assert.match(update.text!, /Your visit to FRC 321 Lancers was changed \(headcount\)/);
+  assert.equal(update.subject, "Updated: your visit to FRC 321 RoboLancers on Monday, November 2");
+  assert.match(update.text!, /Your visit to FRC 321 RoboLancers was changed \(headcount\)/);
   await harness.call("PUT", "/admin/visits/settings", { body: { revision: 1, hostName: "Lancers <321> & friends" } });
   await harness.call("POST", `/admin/visits/bookings/${first.id}/cancel`, { body: { revision: 1 } });
   const canceled = harness.email.sent.at(-1)!;

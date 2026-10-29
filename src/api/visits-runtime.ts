@@ -171,7 +171,7 @@ export async function rows<T>(statement: D1Statement): Promise<T[]> {
 
 export type SettingsRow = {
   host_name: string; intro_text: string; reply_to: string; test_email_sent_at: string | null; discord_enabled: number; discord_channel_id: string | null;
-  weekly_summary_enabled: number; weekly_summary_weekday: number; weekly_summary_time: string; weekly_summary_since_ms: number; revision: number;
+  weekly_summary_enabled: number; weekly_summary_weekday: number; weekly_summary_time: string; weekly_summary_since_ms: number; headcount_required: number; revision: number;
 };
 
 export type WindowRow = {
@@ -186,7 +186,7 @@ export function storedWindow(row: WindowRow): StoredWindow & BookableWindow & { 
 
 export type BookingRow = {
   id: string; window_id: string; team_id: string; contact_name: string; contact_email: string; contact_phone: string; arrival_ms: number;
-  departure_ms: number; headcount: number; note: string; status: "booked" | "canceled"; removed: number; attention: Attention["state"];
+  departure_ms: number; headcount: number | null; note: string; status: "booked" | "canceled"; removed: number; attention: Attention["state"];
   attention_reason: AttentionReason | null; outreach_activity_id: string | null; revision: number; created_at: string; updated_at: string;
 };
 export const bookingColumns = "b.id,b.window_id,b.team_id,b.contact_name,b.contact_email,b.contact_phone,b.arrival_ms,b.departure_ms,b.headcount,b.note,b.status,b.removed,b.attention,b.attention_reason,b.outreach_activity_id,b.revision,b.created_at,b.updated_at";

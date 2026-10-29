@@ -6,5 +6,9 @@
   {
     "name": "0002_create_visits_first_tables.sql",
     "sha256": "4010c5208299577086f34a53ec42969141ab7042b9c87048240cafb54106a4f0"
+  },
+  {
+    "name": "0003_optional_headcount.sql",
+    "sha256": "892efcc77ae505c699913cc8119e63dcde736a94df1cef859d97e502e30e08af"
   }
 ]

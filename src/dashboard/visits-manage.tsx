@@ -10,7 +10,7 @@ import { checkVisitField, validateVisitDraft, visitDraft, visitEdit, visitFieldO
 import { failureOf, guestRequest } from "./visits-http.ts";
 import { teamNeedsHelp, teamNeedsLabel, teamText } from "./visits-labels.ts";
 import { useLiveChecks } from "./visits-live-checks.ts";
-import { arrivalChoices, defaultDeparture, departureChoices, formatTimeRange, formatVisitWhen, groupRangesByDate, localReading, peopleText, type LocalSpan } from "./visits-local.ts";
+import { arrivalChoices, defaultDeparture, departureChoices, formatTimeRange, formatVisitWhen, groupRangesByDate, headcountText, localReading, type LocalSpan } from "./visits-local.ts";
 import { ConfirmDialog, Field, fieldAria, firstProblem, inPageLink, Notice, preventImplicitSubmission, useFieldIds, useFocusRequest, type NoticeValue } from "./visits-ui";
 
 const readToken = () => window.location.hash.replace(/^#/, "").trim();
@@ -70,7 +70,9 @@ function ManageVisit({ token, view, onNotice: setNotice, onView, onReload }: { t
   const currentWindow = windows.find((window) => window.startMs <= booking.arrivalMs && booking.departureMs <= window.endMs);
   const [windowId, setWindowId] = useState(currentWindow?.id ?? currentChoice);
   const [draft, setDraft] = useState<VisitDraft>(() => visitDraft(booking));
-  const { errors, setErrors, blur } = useLiveChecks(draft, checkVisitField);
+  // While an Admin requires a headcount, the guest cannot clear it; otherwise it is optional.
+  const headcountRequired = view.headcountRequired;
+  const { errors, setErrors, blur } = useLiveChecks(draft, (field: string, next: VisitDraft) => checkVisitField(field, next, headcountRequired));
   const [busy, setBusy] = useState(false);
   const [stale, setStale] = useState(false);
   const [canceling, setCanceling] = useState(false);
@@ -111,7 +113,7 @@ function ManageVisit({ token, view, onNotice: setNotice, onView, onReload }: { t
   async function save(event: FormEvent) {
     event.preventDefault();
     if (busy || canceled) return;
-    const found = validateVisitDraft(draft);
+    const found = validateVisitDraft(draft, headcountRequired);
     if (Object.keys(found).length) { setErrors(found); focus(ids(firstProblem(found, visitFieldOrder) ?? "date")); return; }
     if (!edit) { setNotice({ tone: "neutral", text: "Nothing has changed yet." }); return; }
     setBusy(true); setNotice(undefined); setErrors({});
@@ -145,7 +147,7 @@ function ManageVisit({ token, view, onNotice: setNotice, onView, onReload }: { t
       {canceled && <p className="ui-status settings-notice" data-tone="warning">This visit is canceled.</p>}
       <dl className="visits-details">
         <div><dt>When</dt><dd>{formatVisitWhen(booking.date, booking.arrival, booking.departure)}{booking.windowTitle ? ` (${booking.windowTitle})` : ""}</dd></div>
-        <div><dt>People</dt><dd>{peopleText(booking.headcount)}</dd></div>
+        <div><dt>People</dt><dd>{headcountText(booking.headcount)}</dd></div>
         <div><dt>Contact</dt><dd>{booking.contactName}{booking.contactPhone ? `, ${booking.contactPhone}` : ""}</dd></div>
         <div><dt>Email</dt><dd className="visits-break">{booking.contactEmail}</dd></div>
         {booking.note && <div><dt>{teamNeedsLabel}</dt><dd className="visits-multiline">{booking.note}</dd></div>}
@@ -178,8 +180,8 @@ function ManageVisit({ token, view, onNotice: setNotice, onView, onReload }: { t
               </select>
             </Field>
           </div>
-          <Field id={ids("headcount")} label="Headcount" error={errors.headcount}>
-            <input {...fieldAria(ids("headcount"), errors.headcount)} className="ui-control visits-number" type="number" inputMode="numeric" min={1} max={100} step={1} value={draft.headcount} onChange={(event) => change("headcount", event.target.value)} onBlur={blur("headcount")} />
+          <Field id={ids("headcount")} label="Headcount" optional={!headcountRequired} error={errors.headcount}>
+            <input {...fieldAria(ids("headcount"), errors.headcount)} className="ui-control visits-number" type="number" inputMode="numeric" required={headcountRequired} min={1} max={100} step={1} value={draft.headcount} onChange={(event) => change("headcount", event.target.value)} onBlur={blur("headcount")} />
           </Field>
           <Field id={ids("contactName")} label="Your name" error={errors.contactName}>
             <input {...fieldAria(ids("contactName"), errors.contactName)} className="ui-control" autoComplete="name" maxLength={100} value={draft.contactName} onChange={(event) => change("contactName", event.target.value)} onBlur={blur("contactName")} />

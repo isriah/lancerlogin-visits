@@ -4,6 +4,10 @@ All notable changes to the LancerLogin Guest Visits plugin. Versions follow Lanc
 
 Add a `## [X.Y.Z] - YYYY-MM-DD` entry above older entries for each stable or beta release. An entry not released yet is dated `Unreleased` until its release commit.
 
+## [0.2.1] - 2026-10-29
+
+Staff can add availability from the day picked on the calendar (double-click, Enter, or select then Add availability), Repeats and Weekdays use a switch and a single row of day buttons, and switching Repeats keeps the entered date. Guest bookings default to the whole open window, and headcount is optional unless an Admin turns on Require headcount. Adds migration 0003 and Guest Visits backup version 2. See [v0.2.1](docs/releases/v0.2.1.md).
+
 ## [0.2.0] - 2026-10-29
 
 The guest page books from a five-week calendar that fills the window on desktop: choosing a highlighted day opens a card over it with the time slots, arrival and departure, and the booking form. Guests type only their team number; Team lookup finds the program and name in FIRST’s FRC and FTC team lists once an Admin saves FIRST Events API credentials. The guest’s note is now called Team needs. The guest page and the setup step no longer repeat the time zone. Adds migration 0002. See [v0.2.0](docs/releases/v0.2.0.md).

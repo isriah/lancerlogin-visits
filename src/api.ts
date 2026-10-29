@@ -17,7 +17,7 @@ import { outreachInterfaceId, outreachInterfaceVersion } from "./shared/visits-o
 import { visitReportDatasetId } from "./shared/visits-report-fields.ts";
 import type { CivilTime } from "./shared/visits-time.ts";
 import {
-  defaultSettingsSql, neutralizeVisitsBackup, pausedVisitsOperations, visitsBackupColumns, visitsCleanupBlockerSql, visitsCleanupSteps,
+  defaultSettingsSql, neutralizeVisitsBackup, normalizeVisitsBackup, pausedVisitsOperations, visitsBackupColumns, visitsBackupVersion, visitsCleanupBlockerSql, visitsCleanupSteps,
 } from "./shared/visits-storage.ts";
 
 const civil: CivilTime = { resolveCivilTime, instantToCivil };
@@ -76,7 +76,8 @@ const api = defineApiModule({
   cleanup: { steps: visitsCleanupSteps, blocker: { sql: visitsCleanupBlockerSql, bindings: (installation) => [installation] } },
   // Discord off and the weekly summary on Monday 12:00, created once; settings kept through an earlier deletion stay.
   freshEnable: (db, { installationId: installation, now }) => [db.prepare(defaultSettingsSql).bind(installation, Date.parse(now), now)],
-  backup: { version: 1, tables: visitsBackupColumns, neutralize: neutralizeVisitsBackup, pausedOperations: pausedVisitsOperations },
+  // Version 2 added the Require headcount setting and optional headcounts; version 1 backups are converted on restore.
+  backup: { version: visitsBackupVersion, tables: visitsBackupColumns, normalize: normalizeVisitsBackup, neutralize: neutralizeVisitsBackup, pausedOperations: pausedVisitsOperations },
 });
 
 export default api;

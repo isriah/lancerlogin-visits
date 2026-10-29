@@ -6,13 +6,19 @@
 export const installationId = "primary";
 export const moduleId = "visits";
 
-/** Portable tables in parent-first restore order with every column, as backups export them. */
+/**
+ * The backup format version. 2 (migration 0003): visits_settings has headcount_required, and a visit's headcount may be
+ * null. `normalizeVisitsBackup` reads version 1.
+ */
+export const visitsBackupVersion = 2;
+
+/** Portable tables in parent-first restore order with every column, as backups export them, in the tables' column order. */
 export const visitsBackupColumns = {
-  visits_settings: ["installation_id", "host_name", "intro_text", "reply_to", "test_email_sent_at", "discord_enabled", "discord_channel_id", "weekly_summary_enabled", "weekly_summary_weekday", "weekly_summary_time", "weekly_summary_since_ms", "outreach_granted", "outreach_checked_ms", "revision", "updated_at"],
+  visits_settings: ["installation_id", "host_name", "intro_text", "reply_to", "test_email_sent_at", "discord_enabled", "discord_channel_id", "weekly_summary_enabled", "weekly_summary_weekday", "weekly_summary_time", "weekly_summary_since_ms", "outreach_granted", "outreach_checked_ms", "revision", "updated_at", "headcount_required"],
   visits_availability_series: ["installation_id", "id", "weekday_mask", "start_time", "end_time", "first_date", "last_date", "title", "revision", "created_at", "updated_at"],
   visits_windows: ["installation_id", "id", "series_id", "start_ms", "end_ms", "title", "status", "cancel_reason", "edited", "revision", "created_at", "updated_at"],
   visits_teams: ["installation_id", "id", "number", "name", "program", "outreach_team_id", "archived", "revision", "created_at", "updated_at"],
-  visits_bookings: ["installation_id", "id", "window_id", "team_id", "contact_name", "contact_email", "contact_phone", "arrival_ms", "departure_ms", "headcount", "note", "status", "removed", "attention", "attention_reason", "outreach_activity_id", "revision", "created_at", "updated_at"],
+  visits_bookings: ["installation_id", "id", "window_id", "team_id", "contact_name", "contact_email", "contact_phone", "arrival_ms", "departure_ms", "note", "status", "removed", "attention", "attention_reason", "outreach_activity_id", "revision", "created_at", "updated_at", "headcount"],
   visits_booking_revisions: ["installation_id", "booking_id", "revision", "action", "actor_kind", "staff_user_id", "change_json", "snapshot_json", "created_at"],
   visits_notifications: ["installation_id", "id", "channel", "kind", "booking_id", "summary_date", "payload_json", "status", "attempts", "next_attempt_ms", "lease_token", "lease_expires_ms", "external_id", "last_error", "created_at", "updated_at"],
 } as const satisfies Record<string, readonly string[]>;
@@ -106,6 +112,15 @@ export function neutralizeVisitsBackup(tables: Tables): Tables {
     visits_settings: (tables.visits_settings ?? []).map((row) => ({ ...row, outreach_granted: 0, outreach_checked_ms: null })),
     visits_notifications: notifications.map((row) => pausable(row) ? { ...row, status: "paused", next_attempt_ms: null, lease_token: null, lease_expires_ms: null } : row),
   };
+}
+
+/**
+ * Convert an older backup to the current version. Version 1 predates the Require headcount setting, which it restores as
+ * off; its visits all have a headcount, which stays. Other rows are unchanged.
+ */
+export function normalizeVisitsBackup(tables: Tables, fromVersion: number): Tables {
+  if (fromVersion !== 1) throw new RangeError(`Guest Visits cannot read backup version ${fromVersion}`);
+  return { ...tables, visits_settings: (tables.visits_settings ?? []).map((row) => ({ ...row, headcount_required: 0 })) };
 }
 
 /** How many notifications `neutralizeVisitsBackup` pauses. */

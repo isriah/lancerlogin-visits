@@ -4,7 +4,7 @@
 // (useLiveChecks in visits-live-checks.ts, whose state changes are here). Plain functions, so `npm test` covers them
 // without React.
 import {
-  maximumContactNameLength, maximumTeamNameLength, parseEmail, parseHeadcount, parseNote, parsePhone, parseProgram, parseTeamNumber,
+  headcountRequiredProblem, maximumContactNameLength, maximumTeamNameLength, parseEmail, parseHeadcount, parseNote, parsePhone, parseProgram, parseTeamNumber,
   type TeamIdentity, type VisitProgram,
 } from "../shared/visits-booking.ts";
 import { parseCancelReason, parseSeriesInput, parseWindowInput } from "../shared/visits-schedule.ts";
@@ -54,6 +54,12 @@ const requiredText = (value: string, label: string, maximum: number): Check => {
 
 const arrivalTime = (arrival: string): Check => isLocalTime(arrival) ? passed : failed("Choose the arrival time");
 
+/** A headcount as typed: empty is fine unless an Admin requires one; anything typed must be 1 to 100 people. */
+const headcountCheck = (value: string, required = false): Check => value.trim() ? parseHeadcount(value) : required ? failed(headcountRequiredProblem.error) : passed;
+
+/** A typed headcount for a request: the number, or null when the field is empty. */
+const headcountValue = (value: string): number | null => value.trim() ? Number(value.trim()) : null;
+
 const timesInOrder = (arrival: string, departure: string): Check => {
   if (!isLocalTime(departure)) return failed("Choose the departure time");
   return isLocalTime(arrival) && minutesOfDay(departure) <= minutesOfDay(arrival) ? failed("The departure must be after the arrival") : passed;
@@ -83,8 +89,11 @@ export const emptyBookingDraft: BookingDraft = {
 /** Request fields in form order, for focusing the first problem. The guest page asks for the time first; its time slot radio answers for `date`. */
 export const bookingFieldOrder = ["date", "arrival", "departure", "program", "teamNumber", "teamName", "contactName", "contactEmail", "contactPhone", "headcount", "note"] as const;
 
-/** The booking rules: the Worker's own, with a short message for a program left unchosen. */
-const bookingRules: Rules<[BookingDraft, string | undefined]> = {
+/**
+ * The booking rules: the Worker's own, with a short message for a program left unchosen. The headcount is optional unless
+ * the guest page says an Admin requires it.
+ */
+const bookingRules: Rules<[BookingDraft, string | undefined, boolean?]> = {
   program: (draft) => draft.program ? parseProgram(draft.program) : failed("Choose the program"),
   // Until a program is chosen the number is only required: Other allows letters, the rest digits only.
   teamNumber: (draft) => {
@@ -98,18 +107,18 @@ const bookingRules: Rules<[BookingDraft, string | undefined]> = {
   date: (_draft, windowDate) => windowDate ? passed : failed("Choose when to visit"),
   arrival: (draft) => arrivalTime(draft.arrival),
   departure: (draft) => timesInOrder(draft.arrival, draft.departure),
-  headcount: (draft) => parseHeadcount(draft.headcount),
+  headcount: (draft, _windowDate, headcountRequired) => headcountCheck(draft.headcount, headcountRequired),
   note: (draft) => parseNote(draft.note),
 };
 
 /** Every problem in the booking form, by request field, using the Worker's own rules. */
-export function validateBookingDraft(draft: BookingDraft, windowDate: string | undefined): FieldErrors {
-  return validateWith(bookingRules, draft, windowDate);
+export function validateBookingDraft(draft: BookingDraft, windowDate: string | undefined, headcountRequired = false): FieldErrors {
+  return validateWith(bookingRules, draft, windowDate, headcountRequired);
 }
 
 /** One booking field's problem by the same rules, or undefined: `checkBookingField("contactEmail", draft)`. */
-export function checkBookingField(field: string, draft: BookingDraft, windowDate?: string): string | undefined {
-  return checkWith(bookingRules, field, draft, windowDate);
+export function checkBookingField(field: string, draft: BookingDraft, windowDate?: string, headcountRequired = false): string | undefined {
+  return checkWith(bookingRules, field, draft, windowDate, headcountRequired);
 }
 
 /** The booking form's `date` problem belongs to its time slot choice, `windowId`. For `useLiveChecks`. */
@@ -121,6 +130,7 @@ export function bookingRequest(draft: BookingDraft, windowDate: string): Omit<Pu
   const number = program.ok ? parseTeamNumber(draft.teamNumber, program.value) : null;
   const phone = singleLine(draft.contactPhone);
   const note = draft.note.trim();
+  const headcount = headcountValue(draft.headcount);
   return {
     teamNumber: number?.ok ? number.value : draft.teamNumber.trim(),
     teamName: singleLine(draft.teamName),
@@ -131,7 +141,7 @@ export function bookingRequest(draft: BookingDraft, windowDate: string): Omit<Pu
     date: windowDate,
     arrival: draft.arrival,
     departure: draft.departure,
-    headcount: Number(draft.headcount.trim()),
+    ...(headcount === null ? {} : { headcount }),
     ...(note ? { note } : {}),
   };
 }
@@ -181,31 +191,32 @@ export type VisitDraft = {
 
 export function visitDraft(booking: Pick<ManageView["booking"], "date" | "arrival" | "departure" | "headcount" | "note" | "contactName" | "contactPhone">): VisitDraft {
   return {
-    date: booking.date, arrival: booking.arrival, departure: booking.departure, headcount: String(booking.headcount), note: booking.note,
+    date: booking.date, arrival: booking.arrival, departure: booking.departure, headcount: booking.headcount === null ? "" : String(booking.headcount), note: booking.note,
     contactName: booking.contactName, contactPhone: booking.contactPhone,
   };
 }
 
 export const visitFieldOrder = ["date", "arrival", "departure", "headcount", "contactName", "contactPhone", "note"] as const;
 
-const visitRules: Rules<[VisitDraft]> = {
+/** Visit changes. A guest cannot clear the headcount while an Admin requires one; staff always can. */
+const visitRules: Rules<[VisitDraft, boolean?]> = {
   date: (draft) => /^\d{4}-\d{2}-\d{2}$/.test(draft.date) ? passed : failed("Choose the visit date"),
   arrival: (draft) => arrivalTime(draft.arrival),
   departure: (draft) => timesInOrder(draft.arrival, draft.departure),
-  headcount: (draft) => parseHeadcount(draft.headcount),
+  headcount: (draft, headcountRequired) => headcountCheck(draft.headcount, headcountRequired),
   contactName: (draft) => requiredText(draft.contactName, "contact name", maximumContactNameLength),
   contactPhone: (draft) => parsePhone(draft.contactPhone),
   note: (draft) => parseNote(draft.note),
 };
 
 /** Every problem in a visit change, by request field. */
-export function validateVisitDraft(draft: VisitDraft): FieldErrors {
-  return validateWith(visitRules, draft);
+export function validateVisitDraft(draft: VisitDraft, headcountRequired = false): FieldErrors {
+  return validateWith(visitRules, draft, headcountRequired);
 }
 
 /** One visit field's problem by the same rules, or undefined. */
-export function checkVisitField(field: string, draft: VisitDraft): string | undefined {
-  return checkWith(visitRules, field, draft);
+export function checkVisitField(field: string, draft: VisitDraft, headcountRequired = false): string | undefined {
+  return checkWith(visitRules, field, draft, headcountRequired);
 }
 
 type Mutable<Value> = { -readonly [Key in keyof Value]: Value[Key] };
@@ -217,7 +228,7 @@ type Mutable<Value> = { -readonly [Key in keyof Value]: Value[Key] };
 export function visitEdit(booking: Pick<ManageView["booking"], "revision" | "date" | "arrival" | "departure" | "headcount" | "note" | "contactName" | "contactPhone">, draft: VisitDraft): ManageEditRequest | null {
   const edit: Mutable<ManageEditRequest> = { revision: booking.revision };
   if (draft.date !== booking.date || draft.arrival !== booking.arrival || draft.departure !== booking.departure) Object.assign(edit, { date: draft.date, arrival: draft.arrival, departure: draft.departure });
-  const headcount = Number(draft.headcount.trim());
+  const headcount = headcountValue(draft.headcount);
   if (headcount !== booking.headcount) edit.headcount = headcount;
   if (draft.note.trim() !== booking.note.trim()) edit.note = draft.note.trim();
   if (singleLine(draft.contactName) !== booking.contactName) edit.contactName = singleLine(draft.contactName);

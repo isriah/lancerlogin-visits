@@ -174,7 +174,7 @@ async function deliverEmail(db: D1Database, deps: VisitsDeps, row: NotificationR
 }
 
 async function summaryVisits(db: D1Database, reportMs: number, nextReportMs: number): Promise<SummaryVisit[]> {
-  const result = await rows<{ status: string; arrival_ms: number; departure_ms: number; headcount: number; number: string; name: string; program: VisitProgram }>(
+  const result = await rows<{ status: string; arrival_ms: number; departure_ms: number; headcount: number | null; number: string; name: string; program: VisitProgram }>(
     db.prepare(`SELECT b.status,b.arrival_ms,b.departure_ms,b.headcount,t.number,t.name,t.program FROM visits_bookings b JOIN visits_teams t ON t.installation_id=b.installation_id AND t.id=b.team_id
       WHERE b.installation_id=? AND b.status='booked' AND b.arrival_ms>? AND b.arrival_ms<? AND b.departure_ms>?`).bind(installationId, reportMs - 90_000_000, nextReportMs, reportMs));
   return selectSummaryVisits(result.map((visit) => ({ status: visit.status, arrivalMs: visit.arrival_ms, departureMs: visit.departure_ms, headcount: visit.headcount, team: identityOf(visit) })), reportMs, nextReportMs);

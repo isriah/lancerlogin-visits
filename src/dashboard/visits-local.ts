@@ -164,17 +164,23 @@ export function departureChoices(span: Pick<LocalSpan, "startTime" | "endTime">,
   return isLocalTime(arrival) ? steps.filter((time) => minutesOfDay(time) > minutesOfDay(arrival)) : steps;
 }
 
-/** The departure to suggest for an arrival: an hour later when the window allows, else the window's end. */
+/**
+ * The departure to suggest for an arrival: the window's end (its last departure choice), so a visit starts out covering
+ * the whole open time from the arrival on. Guests can still choose an earlier departure. Empty when none is left.
+ */
 export function defaultDeparture(span: Pick<LocalSpan, "startTime" | "endTime">, arrival: string): string {
   const choices = departureChoices(span, arrival);
-  if (!isLocalTime(arrival)) return choices[choices.length - 1] ?? "";
-  const target = minutesOfDay(arrival) + 60;
-  return choices.find((time) => minutesOfDay(time) >= target) ?? choices[choices.length - 1] ?? "";
+  return choices[choices.length - 1] ?? "";
 }
 
-/** "1 person", "5 people". */
-export function peopleText(count: number): string {
-  return `${count} ${count === 1 ? "person" : "people"}`;
+/** "1 person", "5 people", or "headcount not given" in a sentence when the guest did not give one. */
+export function peopleText(count: number | null): string {
+  return count === null ? "headcount not given" : `${count} ${count === 1 ? "person" : "people"}`;
+}
+
+/** A headcount on its own, beside a "People" label: "12 people", or "Not given". */
+export function headcountText(count: number | null): string {
+  return count === null ? "Not given" : peopleText(count);
 }
 
 /** "No teams yet", "1 team coming", "3 teams coming". */

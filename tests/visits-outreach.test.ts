@@ -403,3 +403,13 @@ test("a visit's Outreach state, and a restore forgetting the grant", () => {
   const restored = neutralizeVisitsBackup({ visits_settings: [{ installation_id: "primary", outreach_granted: 1, outreach_checked_ms: 5, intro_text: "Hi" }], visits_notifications: [] });
   assert.deepEqual(restored.visits_settings, [{ installation_id: "primary", outreach_granted: 0, outreach_checked_ms: null, intro_text: "Hi" }]);
 });
+
+test("a visit without a headcount is recorded in Outreach the same way: Guest Visits never sends a headcount", async () => {
+  const harness = await withOutreach({ granted: true });
+  const booked = await book(harness, { headcount: undefined });
+  assert.equal(harness.db.rows<{ headcount: number | null }>("SELECT headcount FROM visits_bookings")[0]!.headcount, null);
+  await harness.job();
+  assert.deepEqual(operations(harness), ["find-teams", "ensure-team", "ensure-team-support-activity"]);
+  assert.ok(harness.outreach.calls.every((call) => !JSON.stringify(call.input).includes("headcount")), "no operation input carries a headcount");
+  assert.deepEqual((await detail(harness, booked.id)).outreach, { state: "recorded", activityId: "outreach-activity-1" });
+});
