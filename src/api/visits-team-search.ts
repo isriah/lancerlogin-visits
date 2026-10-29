@@ -94,14 +94,17 @@ async function lookUpFirst(db: D1Database, deps: VisitsDeps, program: FirstApiPr
   const get: Get = async (url) => await reserveRequest(db, deps.now()) ? firstGet(deps, url, authorization) : null;
   const season = await currentSeason(db, program, now, get);
   if (season === null) return unanswered;
-  let team: FirstTeam | null = null;
+  // FIRST can report a new season before its team lists are published, so a season that fails still falls back to the
+  // previous one. A team found in either season answers; "no team" needs both seasons to have said so.
+  const results: (FirstTeam | null | undefined)[] = [];
   for (const year of [season, season - 1]) {
     const reply = await get(firstTeamsUrl(program, year, number));
     const found = reply?.status === 404 ? null : reply?.status === 200 ? firstTeamOf(reply.body, number) : undefined;
-    if (found === undefined) return unanswered;
-    team = found;
-    if (team) break;
+    results.push(found);
+    if (found) break;
   }
+  const team = results.find((result) => result) ?? null;
+  if (!team && !(results.length === 2 && results.every((result) => result === null))) return unanswered;
   await cacheAnswer(db, program, number, team, now);
   return { match: firstMatch(program, number, team), complete: true };
 }
@@ -145,14 +148,22 @@ export async function saveFirstCredential(db: D1Database, deps: VisitsDeps, valu
   const { program, username, token } = parsed.value;
   if (!deps.credentials.available) throw new VisitsError(409, "LancerLogin cannot encrypt saved credentials on this installation, so the token was not saved. Ask whoever deploys LancerLogin to set up credential encryption.");
   const now = deps.now();
+  let last: Reply = null;
   const get: Get = async (url) => {
-    const reply = await firstGet(deps, url, basicAuthorization(username, token));
-    if (reply?.status === 401 || reply?.status === 403) throw refused(program);
-    return reply;
+    last = await firstGet(deps, url, basicAuthorization(username, token));
+    if (last?.status === 401 || last?.status === 403) throw refused(program);
+    return last;
   };
+  // FRC's API root needs the credential and FTC's does not; a 401 or 403 from any call means FIRST refused it. A season
+  // FIRST reports before its data is published can fail, so the previous season's summary also proves the credential.
   const season = await currentSeason(db, program, now, get);
-  const reply = season === null ? null : await get(firstSeasonUrl(program, season));
-  if (reply?.status !== 200) throw new VisitsError(502, `FIRST's ${program} API could not be reached or did not answer. Try again in a few minutes.`);
+  let reply = season === null ? null : await get(firstSeasonUrl(program, season));
+  if (season !== null && reply?.status !== 200) reply = await get(firstSeasonUrl(program, season - 1));
+  if (reply?.status !== 200) {
+    const answer = last as Reply;
+    const what = !answer ? "did not answer" : answer.status === 200 ? "gave an answer Guest Visits could not read" : `answered with HTTP ${answer.status}`;
+    throw new VisitsError(502, `FIRST's ${program} API ${what}, so the credential was not saved. Try again in a few minutes.`);
+  }
   const encrypted = await deps.credentials.encrypt({ token });
   await db.prepare("INSERT INTO visits_first_credentials(installation_id,program,username,ciphertext,iv,checked_at) VALUES(?,?,?,?,?,?) ON CONFLICT(installation_id,program) DO UPDATE SET username=excluded.username,ciphertext=excluded.ciphertext,iv=excluded.iv,checked_at=excluded.checked_at")
     .bind(installationId, program, username, encrypted.ciphertext, encrypted.iv, iso(now)).run();

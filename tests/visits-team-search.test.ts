@@ -16,12 +16,14 @@ type FirstTeamRecord = { teamNumber: number; nameShort?: string; nameFull?: stri
 type Failure = number | "timeout" | "ok";
 
 /**
- * FIRST's FRC and FTC Events APIs as the handlers see them: an unauthenticated root with `currentSeason`, a season summary
- * and a team list that need an accepted Basic credential. A team number FRC does not know is a 404, FTC answers an empty
- * list. Failures queue per program and apply to that program's next requests in order.
+ * FIRST's FRC and FTC Events APIs as the handlers see them: a root with `currentSeason` (FRC's needs an accepted Basic
+ * credential, FTC's does not), and a season summary and team list that need one. A team number FRC does not know is a
+ * 404, FTC answers an empty list. A season in `unpublished` answers 500, as a season FIRST reports before its data is
+ * published may. Failures queue per program and apply to that program's next requests in order.
  */
 class FakeFirst {
   seasons: Record<FirstApiProgram, number> = { FRC: 2026, FTC: 2025 };
+  readonly unpublished = new Set<string>();
   readonly teams = new Map<string, FirstTeamRecord[]>();
   readonly accepted = new Set([basicAuthorization("lancers", "frc-token-0001"), basicAuthorization("lancers-ftc", "ftc-token-0001")]);
   readonly requests: { url: string; authorization: string }[] = [];
@@ -37,8 +39,10 @@ class FakeFirst {
     if (failure === "timeout") throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
     if (typeof failure === "number") return Response.json({ message: "Service unavailable" }, { status: failure });
     const [, , season, resource] = address.pathname.split("/");
-    if (!season) return Response.json({ name: `${program} Events API`, currentSeason: this.seasons[program], maxSeason: this.seasons[program] });
+    if (!season && program === "FTC") return Response.json({ name: `${program} Events API`, currentSeason: this.seasons[program], maxSeason: this.seasons[program] });
     if (!this.accepted.has(authorization)) return Response.json({ message: "Unauthorized" }, { status: 401 });
+    if (!season) return Response.json({ name: `${program} Events API`, currentSeason: this.seasons[program], maxSeason: this.seasons[program] });
+    if (this.unpublished.has(`${program} ${season}`)) return Response.json({ message: "An error has occurred." }, { status: 500 });
     if (!resource) return Response.json({ eventCount: 12, gameName: "Synthetic" });
     const number = Number(address.searchParams.get("teamNumber"));
     const teams = (this.teams.get(`${program} ${season}`) ?? []).filter((team) => team.teamNumber === number);
@@ -165,12 +169,13 @@ test("an Admin saves a credential only after FIRST accepts it, and the token is 
   assert.deepEqual(rejected.body, { error: "FIRST did not accept this FTC username and token. Check both and save again.", field: "token" });
   assert.equal(harness.count("SELECT COUNT(*) AS n FROM visits_first_credentials WHERE program='FTC'"), 0);
   // FIRST unreachable or failing: 502, nothing saved, and no token in the message. The season is cached by now, so these
-  // hit the season summary.
-  first.failures.FTC.push("timeout");
+  // hit the season summary, then the previous season's.
+  first.failures.FTC.push("timeout", "timeout");
   const timedOut = await harness.call("PUT", "/admin/visits/settings/first-api", { body: ftcCredential });
   assert.equal(timedOut.status, 502);
+  assert.match((timedOut.body as { error: string }).error, /did not answer/);
   assert.doesNotMatch(JSON.stringify(timedOut.body), /token-0001|lancers/);
-  first.failures.FTC.push(503);
+  first.failures.FTC.push(503, 503);
   assert.equal((await harness.call("PUT", "/admin/visits/settings/first-api", { body: ftcCredential })).status, 502);
   assert.equal(harness.count("SELECT COUNT(*) AS n FROM visits_first_credentials WHERE program='FTC'"), 0);
   // Core cannot encrypt: 409 before FIRST is asked.
@@ -305,4 +310,43 @@ test("removing a credential forgets it and its cached answers; the program is th
   first.requests.length = 0;
   assert.deepEqual((await search(harness, "321")).body, { matches: [], complete: false });
   assert.ok(first.requests.every((request) => request.url.startsWith("https://ftc-api.firstinspires.org/")));
+});
+
+test("a season FIRST reports before publishing it falls back to the previous one, and a failed save says what FIRST answered", async () => {
+  const { harness, first } = await lookupHarness();
+  first.seasons.FRC = 2027;
+  first.unpublished.add("FRC 2027");
+  first.add("FRC", 2026, { teamNumber: 321, nameShort: "Lancers", city: "Lansdale", stateProv: "Pennsylvania", country: "USA" });
+
+  const saved = await harness.call("PUT", "/admin/visits/settings/first-api", { body: frcCredential });
+  assert.equal(saved.status, 200, JSON.stringify(saved.body));
+  assert.deepEqual(first.requests.map((request) => request.url), [firstRootUrl("FRC"), firstSeasonUrl("FRC", 2027), firstSeasonUrl("FRC", 2026)]);
+
+  // Only FRC has a credential here, so every search is incomplete; the FRC part is what this checks.
+  first.requests.length = 0;
+  assert.deepEqual((await search(harness, "321")).body, { matches: [match("FRC", "321", "Lancers", "Lansdale, Pennsylvania")], complete: false });
+  assert.deepEqual(first.requests.map((request) => request.url), [firstTeamsUrl("FRC", 2027, "321"), firstTeamsUrl("FRC", 2026, "321")]);
+  // The current season failed and only the previous one said "no team", which is no answer: nothing is cached, and the
+  // next search asks FIRST again.
+  first.requests.length = 0;
+  assert.deepEqual((await search(harness, "4567")).body, { matches: [], complete: false });
+  assert.deepEqual((await search(harness, "4567")).body, { matches: [], complete: false });
+  assert.equal(first.requests.length, 4);
+  assert.equal(harness.count("SELECT COUNT(*) AS n FROM visits_first_teams WHERE number='4567'"), 0);
+  // A team found only in the previous season is cached.
+  first.requests.length = 0;
+  await search(harness, "321");
+  assert.equal(first.requests.length, 0);
+
+  // FRC's root refuses a wrong token at once.
+  const refused = await harness.call("PUT", "/admin/visits/settings/first-api", { body: { ...frcCredential, token: "wrong-token" } });
+  assert.equal(refused.status, 400);
+  assert.equal((refused.body as { field?: string }).field, "token");
+
+  // When neither season answers, the message names FIRST's status and never the token.
+  first.unpublished.add("FTC 2025").add("FTC 2024");
+  const failed = await harness.call("PUT", "/admin/visits/settings/first-api", { body: ftcCredential });
+  assert.equal(failed.status, 502);
+  assert.match((failed.body as { error: string }).error, /FIRST's FTC API answered with HTTP 500, so the credential was not saved/);
+  assert.doesNotMatch(JSON.stringify(failed.body), /token-0001/);
 });
