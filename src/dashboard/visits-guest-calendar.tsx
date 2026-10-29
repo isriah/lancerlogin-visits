@@ -21,7 +21,7 @@ export function GuestCalendar({ id, months, month, onMonth, today, days, selecte
   function move(event: KeyboardEvent<HTMLDivElement>) {
     const step = steps[event.key];
     if (!step || !grid.current) return;
-    const buttons = [...grid.current.querySelectorAll<HTMLButtonElement>("button")];
+    const buttons = Array.from(grid.current.querySelectorAll<HTMLButtonElement>("button"));
     const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
     if (current < 0) return;
     event.preventDefault();
