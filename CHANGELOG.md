@@ -6,7 +6,7 @@ Add a `## [X.Y.Z] - YYYY-MM-DD` entry above older entries for each stable or bet
 
 ## [0.2.0] - Unreleased
 
-The guest page books from a month calendar: guests choose a highlighted day, then a time slot and their arrival and departure, instead of scrolling a list of times. The guest page and the setup step no longer repeat the time zone. See [v0.2.0](docs/releases/v0.2.0.md).
+The guest page books from a month calendar: choosing a highlighted day opens a card over it with the time slots, arrival and departure, and the booking form. Guests type only their team number; Team lookup finds the program and name in FIRST’s FRC and FTC team lists once an Admin saves FIRST Events API credentials. The guest’s note is now called Team needs. The guest page and the setup step no longer repeat the time zone. Adds migration 0002. See [v0.2.0](docs/releases/v0.2.0.md).
 
 ## [0.1.0] - 2026-10-28
 

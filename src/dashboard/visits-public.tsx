@@ -83,12 +83,11 @@ function GuestBookingPage() {
     const timer = window.setTimeout(() => {
       void guestRequest<PublicTeamSearch>(`${publicVisitsRoutes.teamSearch}?${new URLSearchParams({ number })}`, { signal: controller.signal }).then((result) => {
         setSearch({ status: "found", number, result });
-        setDraft((current) => {
-          if (manualRef.current) return current;
-          const team = teamAfterSearch(result.matches, current, filledByLookup.current);
-          filledByLookup.current = Boolean(team.program) && result.matches.some((match) => match.program === team.program);
-          return { ...current, ...team };
-        });
+        if (manualRef.current) return;
+        // The updater stays pure (React may run it twice), so the flag is read before it and set after it.
+        const wasFilled = filledByLookup.current;
+        setDraft((current) => ({ ...current, ...teamAfterSearch(result.matches, current, wasFilled) }));
+        filledByLookup.current = result.matches.length > 0;
       }).catch((error) => { if (!aborted(error)) setSearch({ status: "failed", number }); });
     }, 450);
     return () => { window.clearTimeout(timer); controller.abort(); };
