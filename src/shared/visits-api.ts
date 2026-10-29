@@ -97,9 +97,11 @@ export type ApiError = { readonly error: string; readonly field?: string };
 // Public shapes.
 export type PublicCalendar = {
   readonly timeZone: string;
-  /** The host team's name from settings, such as "FRC 321 Lancers", or empty when none is set. */
+  /** The host team's name from settings, such as "FRC 321 RoboLancers", or empty when none is set. */
   readonly hostName: string;
   readonly introText: string;
+  /** Whether an Admin requires a headcount to book. Otherwise the form marks it optional. */
+  readonly headcountRequired: boolean;
   /** How far ahead guests may book, in days. */
   readonly horizonDays: number;
   readonly windows: readonly PublicWindow[];
@@ -130,7 +132,8 @@ export type PublicBookingRequest = {
   readonly date: string;
   readonly arrival: string;
   readonly departure: string;
-  readonly headcount: number;
+  /** Optional unless `PublicCalendar.headcountRequired`; null or left out means not given. */
+  readonly headcount?: number | null;
   readonly note?: string;
   readonly submissionKey: string;
 };
@@ -147,7 +150,8 @@ export type ManageView = {
     readonly status: "booked" | "canceled";
     readonly team: TeamIdentity;
     readonly windowTitle: string;
-    readonly headcount: number;
+    /** Null when the guest did not give one. */
+    readonly headcount: number | null;
     readonly note: string;
     readonly contactName: string;
     readonly contactPhone: string;
@@ -156,13 +160,16 @@ export type ManageView = {
   /** Open windows the visit may move to. */
   readonly windows: readonly PublicWindow[];
   readonly horizonDays: number;
+  /** Whether an Admin requires a headcount, so the guest cannot clear it. */
+  readonly headcountRequired: boolean;
 };
 export type ManageEditRequest = {
   readonly revision: number;
   readonly date?: string;
   readonly arrival?: string;
   readonly departure?: string;
-  readonly headcount?: number;
+  /** Null clears it (refused for guests while a headcount is required). */
+  readonly headcount?: number | null;
   readonly note?: string;
   readonly contactName?: string;
   readonly contactPhone?: string;
@@ -202,7 +209,8 @@ export type StaffBooking = LocalVisitTimes & {
   readonly team: TeamIdentity & { readonly id: string };
   readonly windowId: string;
   readonly windowTitle: string;
-  readonly headcount: number;
+  /** Null when the guest did not give one. */
+  readonly headcount: number | null;
   readonly note: string;
   readonly contactName: string;
   readonly contactEmail: string;
@@ -257,7 +265,7 @@ export type VisitsStatus = {
 export type VisitsSettings = {
   readonly revision: number;
   /**
-   * The host team's name as guests read it, for example "FRC 321 Lancers", at most 80 characters. Guest emails and the
+   * The host team's name as guests read it, for example "FRC 321 RoboLancers", at most 80 characters. Guest emails and the
    * guest page use it; empty means they say "our team".
    */
   readonly hostName: string;
@@ -270,6 +278,8 @@ export type VisitsSettings = {
   /** 0 is Sunday. */
   readonly weeklySummaryWeekday: number;
   readonly weeklySummaryTime: string;
+  /** Guests must give a headcount to book. Off by default: the headcount is optional. */
+  readonly headcountRequired: boolean;
 };
 export type VisitsSettingsUpdate = Partial<Omit<VisitsSettings, "revision" | "testEmailSentMs">> & { readonly revision: number };
 export type VisitsSetupStatus = { readonly emailReady: boolean; readonly testEmailSentMs: number | null; readonly windowCount: number; readonly timeZone: string };

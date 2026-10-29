@@ -2,7 +2,7 @@
 // page may show, change history and when a visit needs staff attention. Any number of visits may overlap.
 import {
   dayMs, isLocalDate, isLocalTime, localRange, minutesOfDay, multiLine, ok, problem, rangeContains, singleLine,
-  type CivilTime, type Result, type TimeRange,
+  type CivilTime, type Problem, type Result, type TimeRange,
 } from "./visits-time.ts";
 import type { WindowStatus } from "./visits-schedule.ts";
 
@@ -44,7 +44,8 @@ export type GuestBookingInput = {
   readonly date: string;
   readonly arrival: string;
   readonly departure: string;
-  readonly headcount: number;
+  /** Null when the guest did not give one. Whether one is required is a setting the Worker checks. */
+  readonly headcount: number | null;
   readonly note: string;
   /** Client-generated idempotency key: the same key never books twice. */
   readonly submissionKey: string;
@@ -59,7 +60,8 @@ export type BookingDetails = {
   readonly contactPhone: string;
   readonly arrivalMs: number;
   readonly departureMs: number;
-  readonly headcount: number;
+  /** How many people are coming, or null when the guest did not say. */
+  readonly headcount: number | null;
   readonly note: string;
   readonly status: BookingStatus;
 };
@@ -145,6 +147,15 @@ export function parseHeadcount(value: unknown, field = "headcount"): Result<numb
   return ok(count);
 }
 
+/** Validate an optional headcount: nothing (undefined, null or an empty string) is null, anything else must be valid. */
+export function parseOptionalHeadcount(value: unknown, field = "headcount"): Result<number | null> {
+  if (value === undefined || value === null || (typeof value === "string" && !value.trim())) return ok(null);
+  return parseHeadcount(value, field);
+}
+
+/** The refusal when an Admin requires a headcount and none was given. */
+export const headcountRequiredProblem: Problem = problem("headcount", "Enter how many people are coming");
+
 /** Validate an optional note to staff. Line breaks are kept. */
 export function parseNote(value: unknown, field = "note"): Result<string> {
   if (value === undefined || value === null) return ok("");
@@ -180,7 +191,7 @@ export function parseBookingInput(value: unknown): Result<GuestBookingInput> {
   if (!phone.ok) return phone;
   const times = parseVisitTimes(value);
   if (!times.ok) return times;
-  const headcount = parseHeadcount(value.headcount);
+  const headcount = parseOptionalHeadcount(value.headcount);
   if (!headcount.ok) return headcount;
   const note = parseNote(value.note);
   if (!note.ok) return note;
@@ -243,7 +254,7 @@ export type PublicVisit = {
   readonly program: VisitProgram;
   readonly arrivalMs: number;
   readonly departureMs: number;
-  readonly headcount: number;
+  readonly headcount: number | null;
 };
 
 export function publicVisit(booking: Pick<BookingDetails, "arrivalMs" | "departureMs" | "headcount">, team: TeamIdentity): PublicVisit {
@@ -332,7 +343,8 @@ export function handledAttention(current: Attention): Attention {
 export type GuestEdit = {
   readonly revision: number;
   readonly times?: { readonly date: string; readonly arrival: string; readonly departure: string };
-  readonly headcount?: number;
+  /** Null clears it. */
+  readonly headcount?: number | null;
   readonly note?: string;
   readonly contactName?: string;
   readonly contactPhone?: string;
@@ -363,14 +375,14 @@ export function parseGuestEdit(value: unknown): Result<GuestEdit> {
     if (!times.ok) return times;
     edit.times = times.value;
   }
-  if ("headcount" in value) { const headcount = parseHeadcount(value.headcount); if (!headcount.ok) return headcount; edit.headcount = headcount.value; }
+  if ("headcount" in value) { const headcount = parseOptionalHeadcount(value.headcount); if (!headcount.ok) return headcount; edit.headcount = headcount.value; }
   if ("note" in value) { const note = parseNote(value.note); if (!note.ok) return note; edit.note = note.value; }
   if ("contactName" in value) { const name = text(value.contactName, "contactName", "contact name", maximumContactNameLength, true); if (!name.ok) return name; edit.contactName = name.value; }
   if ("contactPhone" in value) { const phone = parsePhone(value.contactPhone); if (!phone.ok) return phone; edit.contactPhone = phone.value; }
   return ok(edit);
 }
 
-export type FieldChange = { readonly field: keyof BookingDetails; readonly from: string | number; readonly to: string | number };
+export type FieldChange = { readonly field: keyof BookingDetails; readonly from: string | number | null; readonly to: string | number | null };
 
 const detailFields: readonly (keyof BookingDetails)[] = ["windowId", "teamId", "contactName", "contactEmail", "contactPhone", "arrivalMs", "departureMs", "headcount", "note", "status"];
 
@@ -473,15 +485,17 @@ export function parseBookingSnapshot(json: string): Result<BookingDetails> {
   try { value = JSON.parse(json); } catch { return problem("snapshot", "This version cannot be read"); }
   if (!isRecord(value)) return problem("snapshot", "This version cannot be read");
   const strings = ["windowId", "teamId", "contactName", "contactEmail", "contactPhone", "note"] as const;
-  const integers = ["arrivalMs", "departureMs", "headcount"] as const;
+  const integers = ["arrivalMs", "departureMs"] as const;
+  // Versions saved before headcount became optional always have one; later ones may have null.
   if (strings.some((field) => typeof value[field] !== "string") || integers.some((field) => !Number.isSafeInteger(value[field]))
+    || (value.headcount !== null && !Number.isSafeInteger(value.headcount))
     || (value.status !== "booked" && value.status !== "canceled") || (value.departureMs as number) <= (value.arrivalMs as number)) {
     return problem("snapshot", "This version cannot be read");
   }
   return ok(bookingDetails(value as unknown as BookingDetails));
 }
 
-/** "FRC 321 Lancers". */
+/** "FRC 321 RoboLancers". */
 export function teamLabel(team: TeamIdentity): string {
   return `${programShortLabels[team.program]} ${team.number} ${team.name}`;
 }

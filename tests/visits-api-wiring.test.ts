@@ -43,6 +43,9 @@ test("the contribution binds exactly the declared routes, setup steps, job, repo
   assert.deepEqual(api.setup.predicates.email!("primary"), { sql: "EXISTS(SELECT 1 FROM visits_settings WHERE installation_id=? AND test_email_sent_at IS NOT NULL)", bindings: ["primary"] });
   assert.equal(api.cleanup.steps, visitsCleanupSteps);
   assert.equal(api.backup!.tables, visitsBackupColumns);
+  assert.equal(api.backup!.version, manifest.backup.version);
+  assert.equal(api.backup!.version, 2, "version 2: Require headcount and optional headcounts");
+  assert.equal(typeof api.backup!.normalize, "function", "version 1 backups are converted on restore");
   assert.deepEqual(Object.keys(api.backup!.tables), [...manifest.backup.tables]);
 });
 
@@ -58,12 +61,12 @@ test("routes, the job and the report run through Core's context with the install
   assert.equal((await api.routes!["/module-setup/visits"]!(context(db, "GET", "/module-setup/visits/status") as never))!.status, 200);
   const pass = await api.jobs!["visits.notifications"]!({ db: db as never, env: {}, services: context(db, "GET", "/").services as never }) as { summary: string };
   assert.equal(pass.summary, "off");
-  db.exec(`INSERT INTO visits_teams(installation_id,id,number,name,program,created_at,updated_at) VALUES('primary','team-1','321','Lancers','FRC','x','x');
+  db.exec(`INSERT INTO visits_teams(installation_id,id,number,name,program,created_at,updated_at) VALUES('primary','team-1','321','RoboLancers','FRC','x','x');
     INSERT INTO visits_bookings(installation_id,id,window_id,team_id,contact_name,contact_email,arrival_ms,departure_ms,headcount,created_at,updated_at)
     SELECT 'primary','booking-1',id,'team-1','Pat','pat@example.org',start_ms,start_ms+3600000,4,'x','x' FROM visits_windows ORDER BY start_ms LIMIT 1;`);
   const definition = { columns: [{ key: "visits.booking.date" }, { key: "visits.booking.team-name" }, { key: "visits.booking.duration" }], sort: { column: { key: "visits.booking.date" }, direction: "desc" } };
   const rows = await api.reports!["visits.bookings"]!(db as never, definition as never, { to: "2027-12-31", today: "2026-10-28" });
-  assert.deepEqual(rows.map((row) => [row.id, row.label, row.href, Object.values(row.cells).map((cell) => cell.text)]), [["booking-1", "FRC 321 Lancers on 2027-11-01", "/visits", ["2027-11-01", "Lancers", "60"]]]);
+  assert.deepEqual(rows.map((row) => [row.id, row.label, row.href, Object.values(row.cells).map((cell) => cell.text)]), [["booking-1", "FRC 321 RoboLancers on 2027-11-01", "/visits", ["2027-11-01", "RoboLancers", "60"]]]);
   assert.deepEqual(await api.reports!["visits.bookings"]!(db as never, definition as never, { from: "2027-11-02", to: "2027-12-31", today: "2026-10-28" }), []);
 });
 

@@ -3,13 +3,13 @@
 import type { AttentionReason, FieldChange, TeamIdentity } from "../shared/visits-booking.ts";
 import { programLabels, programShortLabels, visitPrograms, type VisitProgram } from "../shared/visits-booking.ts";
 import type { BookingHistoryEntry, EmailState, OutreachRecordResult, StaffBooking, StaffTeam } from "../shared/visits-api.ts";
-import { formatInstant, peopleText } from "./visits-local.ts";
+import { formatInstant, headcountText } from "./visits-local.ts";
 
 /** Tones match Core's `ui-status` data-tone values. */
 export type Tone = "neutral" | "success" | "warning" | "error";
 export type Badge = { readonly label: string; readonly tone: Tone };
 
-/** "FRC 321 Lancers". */
+/** "FRC 321 RoboLancers". */
 export function teamText(team: TeamIdentity): string {
   return `${programShortLabels[team.program]} ${team.number} ${team.name}`;
 }
@@ -146,27 +146,30 @@ const fieldText: Readonly<Record<FieldChange["field"], string>> = {
   departureMs: "Departure", headcount: "People", note: teamNeedsLabel, status: "Status",
 };
 
-const valueText = (value: string | number) => {
-  const text = String(value);
+const valueText = (value: string | number | null) => {
+  const text = value === null ? "" : String(value);
   return text === "" ? "(empty)" : text;
 };
 
 /**
- * One history change in words: "People: 4 to 6". Arrival and departure instants read in the time zone; teams by name when
+ * One history change in words: "People: 4 people to 6 people", or "People: Not given to 6 people". Arrival and departure instants read in the time zone; teams by name when
  * the list has them; window IDs only say that the window changed.
  */
 export function describeChange(change: FieldChange, context: { readonly timeZone: string; readonly teamName?: (id: string) => string | undefined }): string {
   const label = fieldText[change.field] ?? change.field;
   if (change.field === "windowId") return "Moved to another window";
   if (change.field === "arrivalMs" || change.field === "departureMs") {
-    const read = (value: string | number) => typeof value === "number" ? formatInstant(value, context.timeZone) : valueText(value);
+    const read = (value: string | number | null) => typeof value === "number" ? formatInstant(value, context.timeZone) : valueText(value);
     return `${label}: ${read(change.from)} to ${read(change.to)}`;
   }
   if (change.field === "teamId") {
-    const name = (value: string | number) => context.teamName?.(String(value)) ?? "another team";
+    const name = (value: string | number | null) => context.teamName?.(String(value)) ?? "another team";
     return `${label}: ${name(change.from)} to ${name(change.to)}`;
   }
-  if (change.field === "headcount") return `${label}: ${typeof change.from === "number" ? peopleText(change.from) : valueText(change.from)} to ${typeof change.to === "number" ? peopleText(change.to) : valueText(change.to)}`;
+  if (change.field === "headcount") {
+    const read = (value: string | number | null) => typeof value === "number" || value === null ? headcountText(value) : valueText(value);
+    return `${label}: ${read(change.from)} to ${read(change.to)}`;
+  }
   if (change.field === "status") return `${label}: ${change.from === "canceled" ? "canceled" : "booked"} to ${change.to === "canceled" ? "canceled" : "booked"}`;
   return `${label}: ${valueText(change.from)} to ${valueText(change.to)}`;
 }

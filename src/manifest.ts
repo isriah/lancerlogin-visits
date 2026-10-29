@@ -50,7 +50,8 @@ const manifest = {
     ],
   },
   backup: {
-    version: 1,
+    // 2: the Require headcount setting and optional headcounts (migration 0003). Version 1 backups are converted on restore.
+    version: 2,
     tables: ["visits_settings", "visits_availability_series", "visits_windows", "visits_teams", "visits_bookings", "visits_booking_revisions", "visits_notifications"],
     // A restore drops every manage link, guest submission key and daily email count. Staff resend confirmations afterwards.
     // FIRST API credentials and lookup caches are never in a backup either; an Admin saves the credentials again.

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { at, newYork } from "./helpers/civil-time.ts";
 import {
   arrivalChoices, compactTime, defaultDeparture, departureChoices, formatCompactDate, formatDateRange, formatInstant, formatTimeRange, formatVisitWhen, groupByDate,
-  groupRangesByDate, guestCellLines, guestDays, guestDayText, guestLastView, guestTeamLabel, guestWeekDates, localReading, localSpan, monthGridRange, peopleText,
+  groupRangesByDate, guestCellLines, guestDays, guestDayText, guestLastView, guestTeamLabel, guestWeekDates, localReading, localSpan, monthGridRange, peopleText, headcountText,
   teamCountText, timeSteps, todayIn, visitCountText, weekdayListText, type GuestDay,
 } from "../src/dashboard/visits-local.ts";
 
@@ -41,6 +41,9 @@ test("times and dates format for people", () => {
   assert.equal(weekdayListText([]), "");
   assert.equal(peopleText(1), "1 person");
   assert.equal(peopleText(12), "12 people");
+  assert.equal(peopleText(null), "headcount not given");
+  assert.equal(headcountText(null), "Not given");
+  assert.equal(headcountText(3), "3 people");
   assert.equal(teamCountText(0), "No teams yet");
   assert.equal(teamCountText(1), "1 team coming");
   assert.equal(teamCountText(3), "3 teams coming");
@@ -96,11 +99,15 @@ test("arrival and departure choices stay inside the window and in order", () => 
   assert.deepEqual(departureChoices(window, "19:00"), []);
 });
 
-test("the suggested departure is an hour after arrival when the window allows, else its end", () => {
+test("the suggested departure is the window's end, so a new visit covers the whole open time", () => {
   const window = { startTime: "18:00", endTime: "21:00" };
-  assert.equal(defaultDeparture(window, "18:00"), "19:00");
+  assert.equal(defaultDeparture(window, "18:00"), "21:00");
   assert.equal(defaultDeparture(window, "20:30"), "21:00");
-  assert.equal(defaultDeparture({ startTime: "18:10", endTime: "21:00" }, "18:10"), "19:15", "the first quarter hour at least an hour later");
+  assert.equal(defaultDeparture({ startTime: "18:10", endTime: "21:05" }, "18:10"), "21:05", "an end off the quarter hour is still the end");
+  // With the first arrival choice (the window's start, or the earliest still open once it began) the visit spans the window.
+  assert.deepEqual([arrivalChoices(window)[0], defaultDeparture(window, arrivalChoices(window)[0]!)], ["18:00", "21:00"]);
+  const started = arrivalChoices(window, "19:20")[0]!;
+  assert.deepEqual([started, defaultDeparture(window, started)], ["19:30", "21:00"]);
   assert.equal(defaultDeparture(window, ""), "21:00");
   assert.equal(defaultDeparture(window, "21:00"), "");
 });

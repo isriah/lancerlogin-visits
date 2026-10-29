@@ -39,7 +39,8 @@ test("a complete booking form has no problems and becomes a request the Worker a
 
 test("every booking problem is reported against its request field", () => {
   const errors = validateBookingDraft(emptyBookingDraft, undefined);
-  assert.deepEqual(Object.keys(errors).sort(), ["arrival", "contactEmail", "contactName", "date", "departure", "headcount", "program", "teamName", "teamNumber"]);
+  assert.deepEqual(Object.keys(errors).sort(), ["arrival", "contactEmail", "contactName", "date", "departure", "program", "teamName", "teamNumber"], "the headcount is optional");
+  assert.equal(validateBookingDraft(emptyBookingDraft, undefined, true).headcount, "Enter how many people are coming", "unless an Admin requires it");
   assert.equal(errors.contactEmail, "Enter an email address for the confirmation");
   assert.equal(errors.teamNumber, "Enter the team number");
   const wrong = validateBookingDraft({ ...filled, teamNumber: "32a", contactEmail: "coach", contactPhone: "12", departure: "17:00", headcount: "0" }, "2026-11-02");
@@ -84,7 +85,18 @@ test("live booking checks: phone symbols, team numbers by program and headcount 
   assert.equal(check("teamNumber", { program: "", teamNumber: " " }), "Enter the team number");
   for (const count of ["1", "100", " 12 "]) assert.equal(check("headcount", { headcount: count }), undefined, count);
   for (const count of ["0", "101"]) assert.equal(check("headcount", { headcount: count }), "Visits are for 1 to 100 people", count);
-  for (const count of ["", "1.5", "-3", "ten"]) assert.equal(check("headcount", { headcount: count }), "Enter how many people are coming", count);
+  for (const count of ["1.5", "-3", "ten"]) assert.equal(check("headcount", { headcount: count }), "Enter how many people are coming", count);
+  for (const count of ["", "  "]) assert.equal(check("headcount", { headcount: count }), undefined, "an empty headcount is fine while it is optional");
+  const required = (changes: Partial<BookingDraft>) => checkBookingField("headcount", { ...filled, ...changes }, "2026-11-02", true);
+  assert.equal(required({ headcount: "" }), "Enter how many people are coming");
+  assert.equal(required({ headcount: "12" }), undefined);
+  assert.equal(required({ headcount: "0" }), "Visits are for 1 to 100 people");
+});
+
+test("a booking without a headcount leaves it out of the request", () => {
+  const request = bookingRequest({ ...filled, headcount: " " }, "2026-11-02");
+  assert.equal("headcount" in request, false);
+  assert.equal(bookingRequest({ ...filled, headcount: " 12 " }, "2026-11-02").headcount, 12);
 });
 
 test("visit and staff edit fields check alone by the rules submit uses", () => {
@@ -115,7 +127,7 @@ test("live checks show a problem when a field is left, then follow it as it chan
   state = liveChange(state, { ...state.draft, contactName: "" }, checkVisitField);
   assert.deepEqual(state.errors, {}, "emptying it again waits for the next blur");
   state = liveBlur(liveChange(state, { ...state.draft, headcount: "0" }, checkVisitField), "headcount", checkVisitField);
-  state = liveChange(state, { ...state.draft, headcount: "" }, checkVisitField);
+  state = liveChange(state, { ...state.draft, headcount: "ten" }, checkVisitField);
   assert.equal(state.errors.headcount, "Enter how many people are coming", "a field showing a problem is checked as it changes");
   state = liveChange(state, { ...state.draft, headcount: "100" }, checkVisitField);
   assert.equal(state.errors.headcount, undefined);
@@ -192,6 +204,21 @@ test("a visit edit sends only what changed, with date and times together", () =>
   assert.deepEqual(validateVisitDraft({ ...draft, departure: "18:00", headcount: "x", contactName: " " }), { departure: "The departure must be after the arrival", headcount: "Enter how many people are coming", contactName: "Enter the contact name" });
 });
 
+test("a headcount can be cleared or added, unless a guest must give one", () => {
+  const draft = visitDraft(booking);
+  assert.deepEqual(visitEdit(booking, { ...draft, headcount: "" }), { revision: 4, headcount: null }, "clearing sends null");
+  const parsed = parseGuestEdit(visitEdit(booking, { ...draft, headcount: "" }));
+  assert.ok(parsed.ok && parsed.value.headcount === null, JSON.stringify(parsed));
+  const unknown = { ...booking, headcount: null };
+  assert.equal(visitDraft(unknown).headcount, "", "a visit without a headcount shows an empty field");
+  assert.equal(visitEdit(unknown, visitDraft(unknown)), null, "leaving it empty is no change");
+  assert.deepEqual(visitEdit(unknown, { ...visitDraft(unknown), headcount: "9" }), { revision: 4, headcount: 9 });
+  assert.deepEqual(validateVisitDraft({ ...draft, headcount: "" }), {});
+  assert.deepEqual(validateVisitDraft({ ...draft, headcount: "" }, true), { headcount: "Enter how many people are coming" });
+  assert.equal(checkVisitField("headcount", { ...draft, headcount: "" }, true), "Enter how many people are coming");
+  assert.equal(checkStaffVisitField("headcount", { ...staffVisitDraft(booking), headcount: "" }), undefined, "staff can always leave it empty");
+});
+
 test("a staff edit also corrects the email address and team, sent only when changed", () => {
   const draft = staffVisitDraft(booking);
   assert.equal(staffVisitEdit(booking, draft), null);
@@ -215,7 +242,8 @@ test("availability drafts become series or window requests checked by the Worker
 });
 
 test("settings updates carry only changed fields with the revision", () => {
-  const saved: VisitsSettings = { revision: 2, hostName: "FRC 321 Lancers", introText: "Welcome", replyTo: "", testEmailSentMs: null, discordEnabled: false, discordChannelId: "", weeklySummaryEnabled: true, weeklySummaryWeekday: 1, weeklySummaryTime: "12:00" };
+  const saved: VisitsSettings = { revision: 2, hostName: "FRC 321 RoboLancers", introText: "Welcome", replyTo: "", testEmailSentMs: null, discordEnabled: false, discordChannelId: "", weeklySummaryEnabled: true, weeklySummaryWeekday: 1, weeklySummaryTime: "12:00", headcountRequired: false };
+  assert.deepEqual(settingsUpdate(saved, { ...saved, headcountRequired: true }, ["hostName", "introText", "headcountRequired"]), { revision: 2, headcountRequired: true });
   assert.equal(settingsUpdate(saved, saved, ["introText", "replyTo"]), null);
   assert.deepEqual(settingsUpdate(saved, { ...saved, introText: "Hello", discordEnabled: true }, ["introText", "replyTo"]), { revision: 2, introText: "Hello" });
   assert.deepEqual(settingsUpdate(saved, { ...saved, hostName: "", introText: "Welcome" }, ["hostName", "introText"]), { revision: 2, hostName: "" });

@@ -3,7 +3,7 @@
 // queues at most one summary, keyed by its report date, so a week posts once even across retries; a missed time posts
 // on the next pass, and a summary still unsent when the following report time arrives is skipped.
 import { teamLabel, type TeamIdentity } from "./visits-booking.ts";
-import { discordContentLimit, escapeDiscord } from "./visits-text.ts";
+import { discordContentLimit, escapeDiscord, peopleCount } from "./visits-text.ts";
 import { addDays, formatShortDate, formatTime, isLocalTime, localInstant, localMoment, type CivilTime } from "./visits-time.ts";
 
 export const defaultSummaryWeekday = 1;
@@ -84,7 +84,7 @@ export function parseSummaryPayload(json: string): SummaryPayload | null {
   } catch { return null; }
 }
 
-export type SummaryVisit = { readonly status: string; readonly arrivalMs: number; readonly departureMs: number; readonly headcount: number; readonly team: TeamIdentity };
+export type SummaryVisit = { readonly status: string; readonly arrivalMs: number; readonly departureMs: number; readonly headcount: number | null; readonly team: TeamIdentity };
 
 /** Booked visits that have not ended by the report time and start before the next report, by arrival. */
 export function selectSummaryVisits<Visit extends SummaryVisit>(visits: readonly Visit[], reportMs: number, nextReportMs: number): Visit[] {
@@ -106,7 +106,7 @@ export function formatWeeklySummary(civil: CivilTime, timeZone: string, input: {
     const arrival = localMoment(civil, timeZone, visit.arrivalMs);
     const departure = localMoment(civil, timeZone, visit.departureMs);
     if (arrival.date !== day) { day = arrival.date; lines.push("", `**${formatShortDate(day)}**`); }
-    lines.push(`- ${escapeDiscord(teamLabel(visit.team))}: ${formatTime(arrival.time)} to ${formatTime(departure.time)}, ${visit.headcount} ${visit.headcount === 1 ? "person" : "people"}`);
+    lines.push(`- ${escapeDiscord(teamLabel(visit.team))}: ${formatTime(arrival.time)} to ${formatTime(departure.time)}, ${peopleCount(visit.headcount)}`);
   }
   const total = input.visits.length;
   let message = [heading, ...lines].join("\n");

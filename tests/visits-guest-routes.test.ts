@@ -242,3 +242,68 @@ test("a guest changes and cancels a visit with the link; stale and closed edits 
   const calendar = await harness.call("GET", "/public/visits/calendar", { role: null });
   assert.ok(calendar.body.windows.every((window: { teamCount: number }) => window.teamCount === 0));
 });
+
+test("a guest may leave the headcount out: it is stored as unknown and reads Not given to staff, in emails and in Discord", async () => {
+  const harness = visitsHarness();
+  await withShopSeries(harness);
+  await harness.call("PUT", "/admin/visits/settings", { body: { revision: 0, discordEnabled: true, discordChannelId: "123456789012345678" } });
+  const calendar = await harness.call("GET", "/public/visits/calendar", { role: null });
+  assert.equal(calendar.body.headcountRequired, false);
+  const { headcount: _left, ...withoutHeadcount } = bookingRequest();
+  assert.equal((await harness.call("POST", "/public/visits/bookings", { body: withoutHeadcount, role: null })).status, 201);
+  assert.equal((await harness.call("POST", "/public/visits/bookings", { body: bookingRequest({ teamNumber: "2", teamName: "Two", contactEmail: "two@example.org", headcount: null }), role: null })).status, 201);
+  assert.equal((await harness.call("POST", "/public/visits/bookings", { body: bookingRequest({ teamNumber: "3", teamName: "Three", contactEmail: "three@example.org", headcount: "" }), role: null })).status, 201);
+  assert.deepEqual(harness.db.rows("SELECT headcount FROM visits_bookings").map((row) => ({ ...row })), [{ headcount: null }, { headcount: null }, { headcount: null }]);
+  // A headcount that is given must still be 1 to 100 people.
+  for (const headcount of [0, 101, 2.5, "ten"]) {
+    const refused = await harness.call("POST", "/public/visits/bookings", { body: bookingRequest({ teamNumber: "4", teamName: "Four", contactEmail: "four@example.org", headcount }), role: null });
+    assert.deepEqual([refused.status, refused.body.field], [400, "headcount"], String(headcount));
+  }
+  const [email] = harness.email.sent;
+  assert.match(email!.text!, /^People: Not given$/m);
+  assert.match(harness.discord.posts[0]!.body.content, /- headcount not given$/);
+  const visits = (await harness.call("GET", "/public/visits/calendar", { role: null })).body.windows[0].visits;
+  assert.deepEqual(visits.map((visit: { headcount: unknown }) => visit.headcount), [null, null, null]);
+  const [staff] = (await harness.call("GET", "/admin/visits/bookings?scope=upcoming")).body;
+  assert.equal(staff.headcount, null);
+  // The guest adds it later through the emailed link, and can clear it again.
+  const token = FakeEmail.token(email!);
+  const added = await manage(harness, "manage/update", { token, edit: { revision: 0, headcount: 9 } });
+  assert.equal(added.status, 200);
+  assert.deepEqual([added.body.booking.headcount, added.body.headcountRequired], [9, false]);
+  assert.match(harness.email.sent.at(-1)!.text!, /changed \(headcount\)/);
+  const cleared = await manage(harness, "manage/update", { token, edit: { revision: 1, headcount: null } });
+  assert.equal(cleared.body.booking.headcount, null);
+  const history = harness.db.rows<{ change_json: string; snapshot_json: string }>("SELECT change_json, snapshot_json FROM visits_booking_revisions WHERE booking_id=? ORDER BY revision", added.body.booking.id);
+  assert.deepEqual(history.map((entry) => JSON.parse(entry.change_json)), [[], [{ field: "headcount", from: null, to: 9 }], [{ field: "headcount", from: 9, to: null }]]);
+  assert.deepEqual(history.map((entry) => JSON.parse(entry.snapshot_json).headcount), [null, 9, null], "history snapshots keep an unknown headcount");
+});
+
+test("when an Admin requires a headcount, the Worker refuses a booking without one and a guest cannot clear it; staff still can", async () => {
+  const harness = visitsHarness();
+  await withShopSeries(harness);
+  const first = await book(harness);
+  const saved = await harness.call("PUT", "/admin/visits/settings", { body: { revision: 0, headcountRequired: true } });
+  assert.deepEqual([saved.status, saved.body.headcountRequired], [200, true]);
+  assert.equal((await harness.call("PUT", "/admin/visits/settings", { body: { revision: 1, headcountRequired: "yes" } })).body.field, "headcountRequired");
+  assert.equal((await harness.call("PUT", "/admin/visits/settings", { body: { revision: 1, headcountRequired: true } })).status, 200);
+  assert.equal((await harness.call("GET", "/public/visits/calendar", { role: null })).body.headcountRequired, true);
+  for (const headcount of [undefined, null, ""]) {
+    const refused = await harness.call("POST", "/public/visits/bookings", { body: bookingRequest({ teamNumber: "5", teamName: "Five", contactEmail: "five@example.org", headcount }), role: null });
+    assert.deepEqual([refused.status, refused.body], [400, { error: "Enter how many people are coming", field: "headcount" }], String(headcount));
+  }
+  assert.equal(harness.count("SELECT COUNT(*) AS n FROM visits_bookings"), 1);
+  assert.equal((await harness.call("POST", "/public/visits/bookings", { body: bookingRequest({ teamNumber: "5", teamName: "Five", contactEmail: "five@example.org", headcount: 4 }), role: null })).status, 201);
+  const token = FakeEmail.token(harness.email.sent[0]!);
+  const view = await manage(harness, "manage", { token });
+  assert.equal(view.body.headcountRequired, true);
+  const cleared = await manage(harness, "manage/update", { token, edit: { revision: 0, headcount: null } });
+  assert.deepEqual([cleared.status, cleared.body.field], [400, "headcount"]);
+  assert.equal(harness.db.rows<{ headcount: number }>("SELECT headcount FROM visits_bookings WHERE id=?", first.id)[0]!.headcount, 12);
+  // Staff can clear it, for a team that does not know yet.
+  const staff = await harness.call("PUT", `/admin/visits/bookings/${first.id}`, { body: { revision: 0, headcount: null } });
+  assert.deepEqual([staff.status, staff.body.headcount], [200, null]);
+  // The guest can still change other details of a visit without a headcount.
+  const note = await manage(harness, "manage/update", { token, edit: { revision: 1, note: "Bringing a robot" } });
+  assert.deepEqual([note.status, note.body.booking.headcount, note.body.booking.note], [200, null, "Bringing a robot"]);
+});

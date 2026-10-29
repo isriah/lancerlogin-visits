@@ -45,7 +45,8 @@ export type VisitMessageDetails = {
   readonly date: string;
   readonly arrival: string;
   readonly departure: string;
-  readonly headcount: number;
+  /** Null when the guest did not give one. */
+  readonly headcount: number | null;
   readonly note: string;
   /** The window's title, such as "Open shop", or empty. */
   readonly windowTitle: string;
@@ -55,7 +56,7 @@ export type VisitMessageDetails = {
 export function visitMessageDetails(civil: CivilTime, timeZone: string, input: {
   readonly hostName: string;
   readonly team: TeamIdentity;
-  readonly booking: { readonly contactName: string; readonly contactPhone: string; readonly arrivalMs: number; readonly departureMs: number; readonly headcount: number; readonly note: string };
+  readonly booking: { readonly contactName: string; readonly contactPhone: string; readonly arrivalMs: number; readonly departureMs: number; readonly headcount: number | null; readonly note: string };
   readonly windowTitle?: string;
 }): VisitMessageDetails {
   const arrival = localMoment(civil, timeZone, input.booking.arrivalMs);
@@ -67,7 +68,13 @@ export function visitMessageDetails(civil: CivilTime, timeZone: string, input: {
   };
 }
 
-const people = (count: number) => `${count} ${count === 1 ? "person" : "people"}`;
+/** What staff and guests read for a headcount the guest did not give. */
+export const headcountNotGiven = "Not given";
+
+/** "1 person", "12 people", or "headcount not given" in a sentence. */
+export function peopleCount(count: number | null): string {
+  return count === null ? "headcount not given" : `${count} ${count === 1 ? "person" : "people"}`;
+}
 const timeSpan = (details: Pick<VisitMessageDetails, "arrival" | "departure">) => `${formatTime(details.arrival)} to ${formatTime(details.departure)}`;
 
 /** Plain-language names of what changed, for update emails and Discord: "date and time", "headcount" and so on. */
@@ -87,7 +94,7 @@ function detailRows(details: VisitMessageDetails): [string, string][] {
     ["Date", formatDate(details.date)],
     ["Arrival", formatTime(details.arrival)],
     ["Departure", formatTime(details.departure)],
-    ["People", String(details.headcount)],
+    ["People", details.headcount === null ? headcountNotGiven : String(details.headcount)],
     ["Contact", details.contactName],
   ];
   if (details.windowTitle) rows.splice(2, 0, ["Time slot", details.windowTitle]);
@@ -150,9 +157,9 @@ export function cancellationEmail(details: VisitMessageDetails, manageUrl: strin
 /** The longest message Discord accepts. */
 export const discordContentLimit = 2000;
 
-/** "FRC 321 Lancers - Monday, November 2, 6:00 PM to 8:00 PM - 12 people", with guest text escaped. */
+/** "FRC 321 RoboLancers - Monday, November 2, 6:00 PM to 8:00 PM - 12 people", with guest text escaped. */
 export function discordVisitLine(details: Pick<VisitMessageDetails, "team" | "date" | "arrival" | "departure" | "headcount">): string {
-  return `${escapeDiscord(teamLabel(details.team))} - ${formatShortDate(details.date)}, ${timeSpan(details)} - ${people(details.headcount)}`;
+  return `${escapeDiscord(teamLabel(details.team))} - ${formatShortDate(details.date)}, ${timeSpan(details)} - ${peopleCount(details.headcount)}`;
 }
 
 export function discordBookedMessage(details: VisitMessageDetails): string {

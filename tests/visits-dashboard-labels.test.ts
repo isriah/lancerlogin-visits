@@ -12,7 +12,7 @@ const base: Pick<StaffBooking, "status" | "removed" | "attention" | "email" | "o
 };
 
 test("teams and programs read the way guests write them", () => {
-  assert.equal(teamText({ number: "321", name: "Lancers", program: "FRC" }), "FRC 321 Lancers");
+  assert.equal(teamText({ number: "321", name: "RoboLancers", program: "FRC" }), "FRC 321 RoboLancers");
   assert.equal(teamText({ number: "12345", name: "Bricks", program: "Challenge" }), "FLL Challenge 12345 Bricks");
   assert.equal(teamText({ number: "99X", name: "Scouts", program: "Other" }), "Team 99X Scouts");
   assert.deepEqual(programChoices.map((choice) => choice.label), ["FRC", "FTC", "FIRST LEGO League Challenge", "FIRST LEGO League Explore", "Other"]);
@@ -70,11 +70,11 @@ test("history reads in words, newest first, with every older entry restorable", 
   assert.equal(historyActorText({ kind: "guest" }), "The team, through the emailed link");
   assert.equal(historyActorText({ kind: "staff", name: "Alex" }), "Staff: Alex");
   assert.equal(historyActorText({ kind: "staff", name: null }), "Staff");
-  const context = { timeZone: newYork, teamName: (id: string) => ({ t1: "FRC 321 Lancers", t2: "FRC 254 Cheesy Poofs" })[id] };
+  const context = { timeZone: newYork, teamName: (id: string) => ({ t1: "FRC 321 RoboLancers", t2: "FRC 254 Cheesy Poofs" })[id] };
   assert.equal(describeChange({ field: "headcount", from: 4, to: 6 }, context), "People: 4 people to 6 people");
   assert.equal(describeChange({ field: "arrivalMs", from: at("2026-11-02T23:00:00Z"), to: at("2026-11-02T23:30:00Z") }, context), "Arrival: Monday, November 2, 6:00 PM to Monday, November 2, 6:30 PM");
-  assert.equal(describeChange({ field: "teamId", from: "t1", to: "t2" }, context), "Team: FRC 321 Lancers to FRC 254 Cheesy Poofs");
-  assert.equal(describeChange({ field: "teamId", from: "t1", to: "t9" }, context), "Team: FRC 321 Lancers to another team");
+  assert.equal(describeChange({ field: "teamId", from: "t1", to: "t2" }, context), "Team: FRC 321 RoboLancers to FRC 254 Cheesy Poofs");
+  assert.equal(describeChange({ field: "teamId", from: "t1", to: "t9" }, context), "Team: FRC 321 RoboLancers to another team");
   assert.equal(describeChange({ field: "windowId", from: "w1", to: "w2" }, context), "Moved to another window");
   assert.equal(describeChange({ field: "status", from: "booked", to: "canceled" }, context), "Status: booked to canceled");
   assert.equal(describeChange({ field: "contactPhone", from: "", to: "555-123-4567" }, context), "Phone: (empty) to 555-123-4567");

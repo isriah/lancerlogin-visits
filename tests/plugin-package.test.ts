@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import manifest from "../src/manifest.ts";
 import {
-  visitsBackupColumns, visitsCleanupSteps, visitsCleanupTargets, visitsNonPortableTables, visitsPortableTables, visitsTables, visitsTransientAuthority,
+  visitsBackupColumns, visitsBackupVersion, visitsCleanupSteps, visitsCleanupTargets, visitsNonPortableTables, visitsPortableTables, visitsTables, visitsTransientAuthority,
 } from "../src/shared/visits-storage.ts";
 
 const root = new URL("../", import.meta.url);
@@ -50,6 +50,7 @@ test("every table is prefixed, declared and classified for backup and cleanup", 
   assert.deepEqual([...manifest.lifecycle.cleanupTargets], [...visitsCleanupTargets]);
   assert.deepEqual(JSON.parse(JSON.stringify(manifest.persistence.transientAuthority)), JSON.parse(JSON.stringify(visitsTransientAuthority)));
   assert.deepEqual(Object.keys(visitsBackupColumns), visitsPortableTables);
+  assert.equal(manifest.backup.version, visitsBackupVersion, "the manifest and the Worker's backup adapter declare one version");
 });
 
 test("cleanup steps cover every table and the module's setup progress and assignments, in target order", () => {

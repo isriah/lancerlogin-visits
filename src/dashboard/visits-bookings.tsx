@@ -13,7 +13,7 @@ import {
   outreachResultText, sortBookings, sortTeams, teamNeedsLabel, teamText, type Tone,
 } from "./visits-labels.ts";
 import { useLiveChecks } from "./visits-live-checks.ts";
-import { formatInstant, formatTimeRange, formatVisitWhen, groupByDate, peopleText } from "./visits-local.ts";
+import { formatInstant, formatTimeRange, formatVisitWhen, groupByDate, headcountText } from "./visits-local.ts";
 import { Badges, ConfirmDialog, Field, fieldAria, firstProblem, LoadState, Notice, preventImplicitSubmission, useFieldIds, useFocusRequest, VisitsDialog, type NoticeValue } from "./visits-ui";
 
 type Outreach = { readonly available: boolean; readonly granted: boolean };
@@ -167,7 +167,7 @@ function BookingCard({ booking, mode, outreach, result, busy, actions }: { booki
     {result && result.state !== "recorded" && <p className="ui-status settings-notice visits-outreach-result" data-tone={resultTones[result.state]} role="status">{outreachResultText(result)}</p>}
     <dl className="visits-details">
       <div><dt>Time</dt><dd>{formatTimeRange(booking.arrival, booking.departure)}{booking.windowTitle ? ` (${booking.windowTitle})` : ""}</dd></div>
-      <div><dt>People</dt><dd>{peopleText(booking.headcount)}</dd></div>
+      <div><dt>People</dt><dd>{headcountText(booking.headcount)}</dd></div>
       <div><dt>Contact</dt><dd>{booking.contactName}{booking.contactPhone && <>, <a href={`tel:${booking.contactPhone.replace(/[^\d+]/g, "")}`}>{booking.contactPhone}</a></>}</dd></div>
       <div><dt>Email</dt><dd className="visits-break"><a href={`mailto:${booking.contactEmail}`}>{booking.contactEmail}</a></dd></div>
       {booking.note && <div className="visits-details-wide"><dt>{teamNeedsLabel}</dt><dd className="visits-multiline">{booking.note}</dd></div>}
@@ -260,7 +260,7 @@ function EditVisitDialog({ booking, teams, timeZone, onSaved, onClose }: { booki
           <Field id={ids("arrival")} label="Arrival" error={errors.arrival}><input {...fieldAria(ids("arrival"), errors.arrival)} className="ui-control" type="time" step={300} value={draft.arrival} onChange={(event) => change("arrival", event.target.value)} onBlur={blur("arrival")} /></Field>
           <Field id={ids("departure")} label="Departure" error={errors.departure}><input {...fieldAria(ids("departure"), errors.departure)} className="ui-control" type="time" step={300} value={draft.departure} onChange={(event) => change("departure", event.target.value)} onBlur={blur("departure")} /></Field>
         </div>
-        <Field id={ids("headcount")} label="Headcount" error={errors.headcount}>
+        <Field id={ids("headcount")} label="Headcount" optional error={errors.headcount}>
           <input {...fieldAria(ids("headcount"), errors.headcount)} className="ui-control visits-number" type="number" inputMode="numeric" min={1} max={100} step={1} value={draft.headcount} onChange={(event) => change("headcount", event.target.value)} onBlur={blur("headcount")} />
         </Field>
         <Field id={ids("note")} label={teamNeedsLabel} optional error={errors.note}>

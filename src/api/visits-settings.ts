@@ -11,7 +11,7 @@ import { outreachAccess } from "./visits-outreach.ts";
 import { attentionCountSql } from "./visits-queries.ts";
 import { installationId, iso, objectBody, ok, onlyFields, revisionOf, stale, VisitsError, type RouteResult, type SettingsRow, type VisitsDeps } from "./visits-runtime.ts";
 
-const settingsColumns = "host_name,intro_text,reply_to,test_email_sent_at,discord_enabled,discord_channel_id,weekly_summary_enabled,weekly_summary_weekday,weekly_summary_time,weekly_summary_since_ms,revision";
+const settingsColumns = "host_name,intro_text,reply_to,test_email_sent_at,discord_enabled,discord_channel_id,weekly_summary_enabled,weekly_summary_weekday,weekly_summary_time,weekly_summary_since_ms,headcount_required,revision";
 
 /** The settings row, created with its defaults if first enablement somehow left none. */
 export async function readSettings(db: D1Database, now: number): Promise<SettingsRow> {
@@ -28,11 +28,11 @@ export function visitsSettings(row: SettingsRow): VisitsSettings {
   return {
     revision: row.revision, hostName: row.host_name, introText: row.intro_text, replyTo: row.reply_to, testEmailSentMs: row.test_email_sent_at ? Date.parse(row.test_email_sent_at) : null,
     discordEnabled: row.discord_enabled === 1, discordChannelId: row.discord_channel_id ?? "", weeklySummaryEnabled: row.weekly_summary_enabled === 1,
-    weeklySummaryWeekday: row.weekly_summary_weekday, weeklySummaryTime: row.weekly_summary_time,
+    weeklySummaryWeekday: row.weekly_summary_weekday, weeklySummaryTime: row.weekly_summary_time, headcountRequired: row.headcount_required === 1,
   };
 }
 
-const settingsFields = ["revision", "hostName", "introText", "replyTo", "discordEnabled", "discordChannelId", "weeklySummaryEnabled", "weeklySummaryWeekday", "weeklySummaryTime"];
+const settingsFields = ["revision", "hostName", "introText", "replyTo", "discordEnabled", "discordChannelId", "weeklySummaryEnabled", "weeklySummaryWeekday", "weeklySummaryTime", "headcountRequired"];
 
 function flag(value: unknown, field: string): boolean {
   if (typeof value !== "boolean") throw new VisitsError(400, "Choose on or off", field);
@@ -77,6 +77,7 @@ export function parseSettingsUpdate(value: unknown, current: VisitsSettings): Om
     if (!isLocalTime(input.weeklySummaryTime)) throw new VisitsError(400, "Enter the summary time as HH:MM", "weeklySummaryTime");
     next.weeklySummaryTime = input.weeklySummaryTime;
   }
+  if ("headcountRequired" in input) next.headcountRequired = flag(input.headcountRequired, "headcountRequired");
   if (next.discordEnabled && !next.discordChannelId) throw new VisitsError(400, "Enter the Discord channel ID for Guest Visits messages", "discordChannelId");
   const { testEmailSentMs: _sent, ...result } = next;
   return result;
@@ -93,9 +94,9 @@ export async function updateSettings(db: D1Database, deps: VisitsDeps, value: un
   const restart = (next.weeklySummaryEnabled && !current.weeklySummaryEnabled) || (next.discordEnabled && !current.discordEnabled)
     || next.weeklySummaryWeekday !== current.weeklySummaryWeekday || next.weeklySummaryTime !== current.weeklySummaryTime;
   const result = await db.prepare(`UPDATE visits_settings SET host_name=?,intro_text=?,reply_to=?,discord_enabled=?,discord_channel_id=?,weekly_summary_enabled=?,weekly_summary_weekday=?,weekly_summary_time=?,
-    weekly_summary_since_ms=CASE WHEN ? THEN ? ELSE weekly_summary_since_ms END,revision=revision+1,updated_at=? WHERE installation_id=? AND revision=?`)
+    weekly_summary_since_ms=CASE WHEN ? THEN ? ELSE weekly_summary_since_ms END,headcount_required=?,revision=revision+1,updated_at=? WHERE installation_id=? AND revision=?`)
     .bind(next.hostName, next.introText, next.replyTo, next.discordEnabled ? 1 : 0, next.discordChannelId || null, next.weeklySummaryEnabled ? 1 : 0, next.weeklySummaryWeekday, next.weeklySummaryTime,
-      restart ? 1 : 0, now, iso(now), installationId, next.revision).run();
+      restart ? 1 : 0, now, next.headcountRequired ? 1 : 0, iso(now), installationId, next.revision).run();
   if (result.meta?.changes !== 1) throw stale("Guest Visits settings");
   return ok(visitsSettings(await readSettings(db, now)));
 }

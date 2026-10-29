@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { at, civil, newYork } from "./helpers/civil-time.ts";
 import {
   cancellationEmail, changeLabels, confirmationEmail, discordBookedMessage, discordCanceledMessage, discordChangedMessage, discordMessageBody, discordVisitLine,
-  escapeDiscord, escapeHtml, updateEmail, visitMessageDetails, type VisitMessageDetails,
+  escapeDiscord, escapeHtml, headcountNotGiven, peopleCount, updateEmail, visitMessageDetails, type VisitMessageDetails,
 } from "../src/shared/visits-text.ts";
 
 const zeroWidthSpace = String.fromCharCode(0x200b);
@@ -100,4 +100,28 @@ test("Discord bodies mention nobody, suppress previews and carry a nonce Discord
   assert.throws(() => discordMessageBody("", "abc"), RangeError);
   assert.throws(() => discordMessageBody("x".repeat(2001), "abc"), RangeError);
   assert.throws(() => discordMessageBody("Hello", "x".repeat(26)), RangeError);
+});
+
+test("a visit without a headcount reads Not given in emails and headcount not given in Discord, the summary and reports", async () => {
+  const unknown = details({ headcount: null });
+  const email = confirmationEmail(unknown, manageUrl);
+  assert.match(email.text, /^People: Not given$/m);
+  assert.match(email.html, /<th[^>]*>People<\/th><td[^>]*>Not given<\/td>/);
+  assert.match(confirmationEmail(details(), manageUrl).text, /^People: 12$/m);
+  assert.equal(discordVisitLine(unknown), "FRC 1234 Gear Heads - Monday, November 2, 6:30 PM to 8:00 PM - headcount not given");
+  assert.equal(discordVisitLine(details({ headcount: 1 })), "FRC 1234 Gear Heads - Monday, November 2, 6:30 PM to 8:00 PM - 1 person");
+  assert.equal(peopleCount(null), "headcount not given");
+  const { formatWeeklySummary } = await import("../src/shared/visits-summary.ts");
+  const team = { number: "1234", name: "Gear Heads", program: "FRC" as const };
+  const summary = formatWeeklySummary(civil, newYork, { reportDate: "2026-11-02", nextReportDate: "2026-11-09", visits: [
+    { status: "booked", arrivalMs: at("2026-11-02T23:30:00Z"), departureMs: at("2026-11-03T01:00:00Z"), headcount: null, team },
+    { status: "booked", arrivalMs: at("2026-11-04T23:30:00Z"), departureMs: at("2026-11-05T01:00:00Z"), headcount: 5, team },
+  ] });
+  assert.match(summary, /- FRC 1234 Gear Heads: 6:30 PM to 8:00 PM, headcount not given$/m);
+  assert.match(summary, /- FRC 1234 Gear Heads: 6:30 PM to 8:00 PM, 5 people$/m);
+  const { visitReportValues } = await import("../src/api/visits-reports.ts");
+  const { visitReportFields } = await import("../src/shared/visits-report-fields.ts");
+  const record = { id: "b1", date: "2026-11-02", arrival: "18:30", departure: "20:00", durationMinutes: 90, teamNumber: "1234", teamName: "Gear Heads", program: "FRC" as const, status: "booked" as const, recordedInOutreach: false };
+  assert.deepEqual(visitReportValues({ ...record, headcount: null })[visitReportFields.headcount], { text: headcountNotGiven, sortValue: null, empty: true }, "Core sorts null after every number and treats it as empty");
+  assert.deepEqual(visitReportValues({ ...record, headcount: 8 })[visitReportFields.headcount], { text: "8", sortValue: 8 });
 });

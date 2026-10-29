@@ -1,9 +1,11 @@
 // Availability: the month calendar (or a table) of dated windows with their visits, and repeating availability. Staff add
 // a repeating series or a one-off window, edit one window, cancel it with a reason guests see, restore it, or remove it.
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+// Add availability starts on the day selected on the calendar; double-clicking a day, or Enter on it, adds on that day.
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent } from "react";
 import { CalendarViewToggle, MonthCalendar, PencilIcon, useCalendarSelection } from "@lancerlogin/module-sdk/dashboard";
 import { adminVisitsRoutes, type StaffBooking, type StaffOverview, type StaffSeries, type StaffWindow } from "../shared/visits-api.ts";
 import { addDays, formatShortDate, weekdayNames } from "../shared/visits-time.ts";
+import { addAvailabilityDate, availabilityDraftOn, switchRepeats } from "./visits-availability-dates.ts";
 import { availabilityDraft, availabilityRequest, cancelReason, type AvailabilityDraft, type FieldErrors } from "./visits-forms.ts";
 import { aborted, failureOf, staffRequest } from "./visits-http.ts";
 import { teamText } from "./visits-labels.ts";
@@ -13,9 +15,11 @@ import { ConfirmDialog, Field, fieldAria, LoadState, Notice, preventImplicitSubm
 type View = "calendar" | "table";
 const viewKey = "lancerlogin-visits-availability-view";
 const readView = (): View => { try { return window.localStorage.getItem(viewKey) === "table" ? "table" : "calendar"; } catch { return "calendar"; } };
+/** A day button of Core's month calendar, which the double-click and Enter shortcuts act on. */
+const calendarDay = (target: EventTarget) => target instanceof Element ? target.closest<HTMLButtonElement>("button.compact-calendar-day") : null;
 
 type Dialog =
-  | { readonly kind: "add" }
+  | { readonly kind: "add"; readonly date: string }
   | { readonly kind: "edit-window"; readonly window: StaffWindow }
   | { readonly kind: "edit-series"; readonly series: StaffSeries }
   | { readonly kind: "cancel"; readonly window: StaffWindow }
@@ -26,6 +30,8 @@ export function AvailabilitySection({ timeZone, onChanged }: { timeZone: string;
   const today = todayIn(timeZone);
   const [view, setView] = useState<View>(readView);
   const [selection, setSelection] = useCalendarSelection("lancerlogin-visits-availability-calendar", today);
+  // The day a click just selected, read by the double-click and Enter that follow it before React renders again.
+  const picked = useRef(selection.selectedDate);
   const range = view === "calendar" ? monthGridRange(today, selection.offset) : { from: today, to: addDays(today, 119) };
   const [overview, setOverview] = useState<StaffOverview>();
   const [series, setSeries] = useState<StaffSeries[]>([]);
@@ -59,6 +65,16 @@ export function AvailabilitySection({ timeZone, onChanged }: { timeZone: string;
 
   function chooseView(next: View) { setView(next); try { window.localStorage.setItem(viewKey, next); } catch { /* The view still changes without browser storage. */ } }
   function open(next: Dialog) { setDialogError(""); setDialog(next); }
+  function select(next: typeof selection) { picked.current = next.selectedDate; setSelection(next); }
+  function addOnDay(event: MouseEvent<HTMLDivElement>) { if (calendarDay(event.target)) open({ kind: "add", date: addAvailabilityDate(today, "calendar", picked.current) }); }
+  function addOnEnter(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "Enter" || event.repeat || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    const day = calendarDay(event.target);
+    if (!day) return;
+    event.preventDefault();
+    day.click(); // Selects the day, as a click does, before the card opens on it.
+    open({ kind: "add", date: addAvailabilityDate(today, "calendar", picked.current) });
+  }
   async function changed(text: string) { setDialog(undefined); setNotice({ tone: "success", text }); setVersion((current) => current + 1); await onChanged(); }
 
   async function act(run: () => Promise<unknown>, success: string) {
@@ -69,7 +85,7 @@ export function AvailabilitySection({ timeZone, onChanged }: { timeZone: string;
   }
   const restore = (window: StaffWindow) => act(() => staffRequest(adminVisitsRoutes.windowRestore(window.id), { method: "POST", body: { revision: window.revision } }), `Window on ${formatShortDate(window.date)} restored. Guests can book it again.`);
 
-  const addButton = <button className="ui-button ui-button--primary" type="button" aria-haspopup="dialog" onClick={() => open({ kind: "add" })}><span aria-hidden="true">+ </span>Add availability</button>;
+  const addButton = <button className="ui-button ui-button--primary" type="button" aria-haspopup="dialog" onClick={() => open({ kind: "add", date: addAvailabilityDate(today, view, selection.selectedDate) })}><span aria-hidden="true">+ </span>Add availability</button>;
   const record = (window: StaffWindow) => <WindowRecord key={window.id} window={window} visits={visitsByWindow.get(window.id) ?? []} busy={busy}
     onEdit={() => open({ kind: "edit-window", window })} onCancel={() => open({ kind: "cancel", window })} onRestore={() => void restore(window)} onRemove={() => open({ kind: "remove-window", window })} />;
 
@@ -79,10 +95,12 @@ export function AvailabilitySection({ timeZone, onChanged }: { timeZone: string;
     <LoadState loading={loading && !overview} error={overview ? "" : error} label="availability" onRetry={() => setVersion((current) => current + 1)} />
     {overview && error && <p className="ui-status settings-notice" data-tone="error" role="alert">{error}</p>}
     {overview && (view === "calendar"
-      ? <MonthCalendar title="Availability" id="visits-availability-calendar" today={today} selection={selection} onSelectionChange={setSelection} items={windows}
-        itemDate={(window) => window.date} label="windows" showToday action={addButton} emptyText="No availability on this day."
-        itemSummary={(window) => ({ title: window.status === "canceled" ? "Canceled" : window.title || "Open", detail: `${compactTime(window.startTime)} to ${compactTime(window.endTime)}${window.bookedCount ? `, ${visitCountText(window.bookedCount)}` : ""}` })}
-        renderItem={record} />
+      ? <div className="visits-availability-calendar" onDoubleClick={addOnDay} onKeyDown={addOnEnter}>
+        <MonthCalendar title="Availability" id="visits-availability-calendar" today={today} selection={selection} onSelectionChange={select} items={windows}
+          itemDate={(window) => window.date} label="windows" showToday action={addButton} emptyText="No availability on this day."
+          itemSummary={(window) => ({ title: window.status === "canceled" ? "Canceled" : window.title || "Open", detail: `${compactTime(window.startTime)} to ${compactTime(window.endTime)}${window.bookedCount ? `, ${visitCountText(window.bookedCount)}` : ""}` })}
+          renderItem={record} />
+      </div>
       : <section className="ui-card visits-stack" aria-labelledby="visits-window-table-title">
         <div className="panel-heading"><div><h2 id="visits-window-table-title">Availability</h2><p>The next 120 days</p></div>{addButton}</div>
         {windows.length === 0 ? <p className="empty-state">No availability in the next 120 days.</p> : <div className="responsive-table"><table className="ui-table visits-table">
@@ -99,7 +117,7 @@ export function AvailabilitySection({ timeZone, onChanged }: { timeZone: string;
       </section>)}
     {overview && <SeriesList series={series} busy={busy} onEdit={(item) => open({ kind: "edit-series", series: item })} onRemove={(item) => open({ kind: "remove-series", series: item })} />}
 
-    {dialog?.kind === "add" && <AvailabilityDialog title="Add availability" today={today} timeZone={timeZone} onClose={() => setDialog(undefined)}
+    {dialog?.kind === "add" && <AvailabilityDialog title="Add availability" today={today} timeZone={timeZone} initial={availabilityDraftOn(today, dialog.date)} onClose={() => setDialog(undefined)}
       onSave={async (request) => {
         if (request.kind === "series") { await staffRequest(adminVisitsRoutes.series, { method: "POST", body: request.value }); await changed(`Repeating availability added: ${weekdayListText(request.value.weekdays)}, ${formatTimeRange(request.value.startTime, request.value.endTime)}.`); }
         else { await staffRequest(adminVisitsRoutes.windows, { method: "POST", body: request.value }); await changed(`Window added on ${formatShortDate(request.value.date)}.`); }
@@ -176,26 +194,32 @@ function SeriesList({ series, busy, onEdit, onRemove }: { series: readonly Staff
 }
 
 export type AvailabilityRequest = Extract<ReturnType<typeof availabilityRequest>, { ok: true }>;
+const repeatChoices = [[true, "Every week"], [false, "One date"]] as const;
 const availabilityFieldOrder = ["repeating", "weekdays", "firstDate", "lastDate", "date", "startTime", "endTime", "title"];
 
-/** The fields of a repeating series or a one-off window. `fixed` hides the choice when editing one or the other. */
+/** The fields of a repeating series or a one-off window. `fixed` hides the choice when editing one or the other. Repeats
+ *  is a two-part switch of native radios (arrow keys move between them) that keeps the date typed when it changes; the
+ *  weekdays are one row of native checkboxes drawn as toggles, named with the full day. */
 export function AvailabilityFields({ draft, onChange, errors, ids, fixed }: { draft: AvailabilityDraft; onChange: (draft: AvailabilityDraft) => void; errors: FieldErrors; ids: (field: string) => string; fixed?: "series" | "window" }) {
   const set = <Key extends keyof AvailabilityDraft>(field: Key, value: AvailabilityDraft[Key]) => onChange({ ...draft, [field]: value });
   const toggleDay = (day: number, on: boolean) => set("weekdays", on ? [...draft.weekdays, day].sort((left, right) => left - right) : draft.weekdays.filter((item) => item !== day));
   return <>
-    {!fixed && <fieldset className="visits-fieldset visits-choice">
-      <legend>Repeats</legend>
-      <label className="checkbox-field"><input id={ids("repeating")} type="radio" name={ids("repeats")} checked={draft.repeating} onChange={() => set("repeating", true)} />Every week</label>
-      <label className="checkbox-field"><input type="radio" name={ids("repeats")} checked={!draft.repeating} onChange={() => set("repeating", false)} />One date</label>
-    </fieldset>}
+    {!fixed && <div className="visits-field visits-repeats">
+      <span id={ids("repeats-label")} className="visits-control-label">Repeats</span>
+      <div className="visits-switch" role="radiogroup" aria-labelledby={ids("repeats-label")}>
+        {repeatChoices.map(([repeating, text]) => <label key={text} className="visits-switch-option">
+          <input id={repeating ? ids("repeating") : undefined} type="radio" name={ids("repeats")} checked={draft.repeating === repeating} onChange={() => onChange(switchRepeats(draft, repeating))} /><span>{text}</span>
+        </label>)}
+      </div>
+    </div>}
     {draft.repeating ? <>
-      <fieldset className="visits-fieldset visits-weekdays" aria-describedby={errors.weekdays ? `${ids("weekdays")}-error` : undefined}>
-        <legend>Weekdays</legend>
-        <div className="visits-weekday-options">{weekdayNames.map((name, day) => <label key={name} className="checkbox-field">
-          <input id={day === 0 ? ids("weekdays") : undefined} className="ui-checkbox" type="checkbox" checked={draft.weekdays.includes(day)} aria-invalid={errors.weekdays ? true : undefined} onChange={(event) => toggleDay(day, event.target.checked)} />{name}
+      <div className="visits-field visits-weekdays" role="group" aria-labelledby={ids("weekdays-label")} aria-describedby={errors.weekdays ? `${ids("weekdays")}-error` : undefined}>
+        <span id={ids("weekdays-label")} className="visits-control-label">Weekdays</span>
+        <div className="visits-day-toggles">{weekdayNames.map((name, day) => <label key={name} className="visits-day-toggle">
+          <input id={day === 0 ? ids("weekdays") : undefined} type="checkbox" aria-label={name} checked={draft.weekdays.includes(day)} aria-invalid={errors.weekdays ? true : undefined} onChange={(event) => toggleDay(day, event.target.checked)} /><span aria-hidden="true">{name.slice(0, 3)}</span>
         </label>)}</div>
         {errors.weekdays && <span id={`${ids("weekdays")}-error`} className="field-help visits-field-error">{errors.weekdays}</span>}
-      </fieldset>
+      </div>
       <div className="visits-time-grid">
         <Field id={ids("firstDate")} label="First date" error={errors.firstDate}><input {...fieldAria(ids("firstDate"), errors.firstDate)} className="ui-control" type="date" required value={draft.firstDate} onChange={(event) => set("firstDate", event.target.value)} /></Field>
         <Field id={ids("lastDate")} label="Last date" error={errors.lastDate}><input {...fieldAria(ids("lastDate"), errors.lastDate)} className="ui-control" type="date" required value={draft.lastDate} onChange={(event) => set("lastDate", event.target.value)} /></Field>

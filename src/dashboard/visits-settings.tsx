@@ -130,14 +130,15 @@ function useSaving() {
 function GuestPageSettings({ settings, status, save, onDirty }: SectionProps) {
   const [hostName, setHostName] = useState(settings.hostName);
   const [introText, setIntroText] = useState(settings.introText);
+  const [headcountRequired, setHeadcountRequired] = useState(settings.headcountRequired);
   const [copied, setCopied] = useState<NoticeValue>();
   const saving = useSaving();
   const ids = useFieldIds();
   const focus = useFocusRequest();
   const link = guestPageLink(window.location.origin, status.guestPagePath);
-  const update = settingsUpdate(settings, { ...settings, hostName: singleLine(hostName), introText: introText.trim() }, ["hostName", "introText"]);
+  const update = settingsUpdate(settings, { ...settings, hostName: singleLine(hostName), introText: introText.trim(), headcountRequired }, ["hostName", "introText", "headcountRequired"]);
   useEffect(() => { onDirty(Boolean(update)); }, [Boolean(update)]);
-  useEffect(() => { setHostName(settings.hostName); setIntroText(settings.introText); }, [settings.revision]);
+  useEffect(() => { setHostName(settings.hostName); setIntroText(settings.introText); setHeadcountRequired(settings.headcountRequired); }, [settings.revision]);
 
   async function copy() {
     try { await navigator.clipboard.writeText(link); setCopied({ tone: "success", text: "Guest page link copied." }); }
@@ -147,7 +148,7 @@ function GuestPageSettings({ settings, status, save, onDirty }: SectionProps) {
     event.preventDefault();
     if (!update) return;
     if (singleLine(hostName).length > maximumHostNameLength) { saving.setErrors({ hostName: `Your team's name is at most ${maximumHostNameLength} characters` }); focus(ids("hostName")); return; }
-    await saving.run(() => save(update), "Guest page text saved.", ids, focus);
+    await saving.run(() => save(update), "Guest page saved.", ids, focus);
   }
 
   return <div className="visits-stack">
@@ -158,16 +159,20 @@ function GuestPageSettings({ settings, status, save, onDirty }: SectionProps) {
       </div>
       <p><a href={link} target="_blank" rel="noopener">Open the guest page<span className="visually-hidden"> in a new tab</span></a></p>
     </SettingsCard>
-    <SettingsCard id="visits-intro-title" title="Guest page text" intro="Guests see your team's name and the intro at the top of the guest page. Guest emails name your team too." notice={saving.notice}>
+    <SettingsCard id="visits-intro-title" title="Guest page" intro="Guests see your team's name and the intro at the top of the guest page. Guest emails name your team too." notice={saving.notice}>
       <form className="ui-form visits-form" noValidate onSubmit={(event) => void submit(event)} onKeyDown={preventImplicitSubmission}>
-        <Field id={ids("hostName")} label="Your team's name" optional error={saving.errors.hostName} help={`For example FRC 321 Lancers. The guest page then reads "Book a visit with FRC 321 Lancers". Left empty, guest pages and emails say "${defaultHostName}".`}>
+        <Field id={ids("hostName")} label="Your team's name" optional error={saving.errors.hostName} help={`For example FRC 321 RoboLancers. The guest page then reads "Book a visit with FRC 321 RoboLancers". Left empty, guest pages and emails say "${defaultHostName}".`}>
           <input {...fieldAria(ids("hostName"), saving.errors.hostName, true)} className="ui-control" autoComplete="organization" maxLength={maximumHostNameLength} disabled={saving.busy} value={hostName}
             onChange={(event) => { setHostName(event.target.value); saving.setErrors({}); }} />
         </Field>
         <Field id={ids("introText")} label="Intro text" optional error={saving.errors.introText} help="For example where to park and what to bring.">
           <textarea {...fieldAria(ids("introText"), saving.errors.introText, true)} className="ui-control" rows={5} maxLength={maximumIntroTextLength} disabled={saving.busy} value={introText} onChange={(event) => setIntroText(event.target.value)} />
         </Field>
-        <div className="module-actions"><button className="ui-button ui-button--primary" type="submit" disabled={saving.busy || !update}>{saving.busy ? "Saving..." : "Save guest page text"}</button></div>
+        <div className="visits-field">
+          <label className="checkbox-field"><input id={ids("headcountRequired")} className="ui-checkbox" type="checkbox" aria-describedby={`${ids("headcountRequired")}-help`} disabled={saving.busy} checked={headcountRequired} onChange={(event) => setHeadcountRequired(event.target.checked)} />Require headcount</label>
+          <span id={`${ids("headcountRequired")}-help`} className="field-help">When on, guests must say how many people are coming to book. When off, the headcount is optional, and staff see "Not given" for visits without one.</span>
+        </div>
+        <div className="module-actions"><button className="ui-button ui-button--primary" type="submit" disabled={saving.busy || !update}>{saving.busy ? "Saving..." : "Save guest page"}</button></div>
       </form>
     </SettingsCard>
   </div>;
