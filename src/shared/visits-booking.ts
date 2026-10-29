@@ -124,16 +124,16 @@ export function parseEmail(value: unknown, field = "contactEmail"): Result<strin
   return ok(email);
 }
 
-/** Validate an optional phone number: digits with spaces, +, parentheses, dots or hyphens, and an optional extension. */
+/** Validate an optional phone number: digits with spaces, parentheses, dots, hyphens and a leading +. No letters, so no extension. */
 export function parsePhone(value: unknown, field = "contactPhone"): Result<string> {
   if (value === undefined || value === null) return ok("");
   if (typeof value !== "string") return problem(field, "Enter the phone number as text");
   const phone = singleLine(value);
   if (!phone) return ok("");
+  if (/\p{L}/u.test(phone)) return problem(field, "Enter the phone number without letters or an extension");
+  if (!/^\+?[0-9 ().-]+$/.test(phone)) return problem(field, "Use only digits, spaces, dots, hyphens, parentheses and a leading +");
   const digits = phone.replace(/\D/g, "").length;
-  if (phone.length > maximumPhoneLength || !/^\+?[0-9 ().-]+(?:\s*(?:x|ext\.?)\s*\d{1,6})?$/i.test(phone) || digits < 7 || digits > 21) {
-    return problem(field, "Enter a phone number with its area code, or leave it empty");
-  }
+  if (phone.length > maximumPhoneLength || digits < 7 || digits > 21) return problem(field, "Enter a phone number with its area code, or leave it empty");
   return ok(phone);
 }
 

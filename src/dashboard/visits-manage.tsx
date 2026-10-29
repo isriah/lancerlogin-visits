@@ -6,9 +6,10 @@ import type { DashboardNavigate } from "@lancerlogin/module-sdk/dashboard";
 import { publicVisitsRoutes, type ManageView } from "../shared/visits-api.ts";
 import { isManageToken } from "../shared/visits-tokens.ts";
 import { formatShortDate, formatTime } from "../shared/visits-time.ts";
-import { validateVisitDraft, visitDraft, visitEdit, visitFieldOrder, type FieldErrors, type VisitDraft } from "./visits-forms.ts";
+import { checkVisitField, validateVisitDraft, visitDraft, visitEdit, visitFieldOrder, type VisitDraft } from "./visits-forms.ts";
 import { failureOf, guestRequest } from "./visits-http.ts";
 import { teamNeedsHelp, teamNeedsLabel, teamText } from "./visits-labels.ts";
+import { useLiveChecks } from "./visits-live-checks.ts";
 import { arrivalChoices, defaultDeparture, departureChoices, formatTimeRange, formatVisitWhen, groupRangesByDate, localReading, peopleText, type LocalSpan } from "./visits-local.ts";
 import { ConfirmDialog, Field, fieldAria, firstProblem, inPageLink, Notice, preventImplicitSubmission, useFieldIds, useFocusRequest, type NoticeValue } from "./visits-ui";
 
@@ -69,7 +70,7 @@ function ManageVisit({ token, view, onNotice: setNotice, onView, onReload }: { t
   const currentWindow = windows.find((window) => window.startMs <= booking.arrivalMs && booking.departureMs <= window.endMs);
   const [windowId, setWindowId] = useState(currentWindow?.id ?? currentChoice);
   const [draft, setDraft] = useState<VisitDraft>(() => visitDraft(booking));
-  const [errors, setErrors] = useState<FieldErrors>({});
+  const { errors, setErrors, blur } = useLiveChecks(draft, checkVisitField);
   const [busy, setBusy] = useState(false);
   const [stale, setStale] = useState(false);
   const [canceling, setCanceling] = useState(false);
@@ -85,10 +86,8 @@ function ManageVisit({ token, view, onNotice: setNotice, onView, onReload }: { t
   const departures = departureOptions(draft.arrival);
   const edit = visitEdit(booking, draft);
 
-  function change<Key extends keyof VisitDraft>(field: Key, value: VisitDraft[Key]) {
-    setDraft((current) => ({ ...current, [field]: value }));
-    setErrors((current) => { if (!current[field]) return current; const next = { ...current }; delete next[field]; return next; });
-  }
+  // Live checks clear or update a field's error as it changes.
+  function change<Key extends keyof VisitDraft>(field: Key, value: VisitDraft[Key]) { setDraft((current) => ({ ...current, [field]: value })); }
   function chooseWindow(id: string) {
     setWindowId(id);
     if (id === currentChoice || id === currentWindow?.id) { setDraft((current) => ({ ...current, date: booking.date, arrival: booking.arrival, departure: booking.departure })); return; }
@@ -179,17 +178,17 @@ function ManageVisit({ token, view, onNotice: setNotice, onView, onReload }: { t
               </select>
             </Field>
           </div>
-          <Field id={ids("headcount")} label="People coming" error={errors.headcount}>
-            <input {...fieldAria(ids("headcount"), errors.headcount)} className="ui-control visits-number" type="number" inputMode="numeric" min={1} max={100} step={1} value={draft.headcount} onChange={(event) => change("headcount", event.target.value)} />
+          <Field id={ids("headcount")} label="Headcount" error={errors.headcount}>
+            <input {...fieldAria(ids("headcount"), errors.headcount)} className="ui-control visits-number" type="number" inputMode="numeric" min={1} max={100} step={1} value={draft.headcount} onChange={(event) => change("headcount", event.target.value)} onBlur={blur("headcount")} />
           </Field>
           <Field id={ids("contactName")} label="Your name" error={errors.contactName}>
-            <input {...fieldAria(ids("contactName"), errors.contactName)} className="ui-control" autoComplete="name" maxLength={100} value={draft.contactName} onChange={(event) => change("contactName", event.target.value)} />
+            <input {...fieldAria(ids("contactName"), errors.contactName)} className="ui-control" autoComplete="name" maxLength={100} value={draft.contactName} onChange={(event) => change("contactName", event.target.value)} onBlur={blur("contactName")} />
           </Field>
           <Field id={ids("contactPhone")} label="Phone" optional error={errors.contactPhone}>
-            <input {...fieldAria(ids("contactPhone"), errors.contactPhone)} className="ui-control" type="tel" autoComplete="tel" maxLength={40} value={draft.contactPhone} onChange={(event) => change("contactPhone", event.target.value)} />
+            <input {...fieldAria(ids("contactPhone"), errors.contactPhone)} className="ui-control" type="tel" autoComplete="tel" maxLength={40} value={draft.contactPhone} onChange={(event) => change("contactPhone", event.target.value)} onBlur={blur("contactPhone")} />
           </Field>
           <Field id={ids("note")} label={teamNeedsLabel} optional error={errors.note} help={teamNeedsHelp}>
-            <textarea {...fieldAria(ids("note"), errors.note, true)} className="ui-control" rows={3} maxLength={1000} value={draft.note} onChange={(event) => change("note", event.target.value)} />
+            <textarea {...fieldAria(ids("note"), errors.note, true)} className="ui-control" rows={3} maxLength={1000} value={draft.note} onChange={(event) => change("note", event.target.value)} onBlur={blur("note")} />
           </Field>
         </fieldset>
         <div className="module-actions">

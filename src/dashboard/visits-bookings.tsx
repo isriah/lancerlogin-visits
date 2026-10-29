@@ -6,12 +6,13 @@ import {
   adminVisitsRoutes, type OutreachRecordResponse, type OutreachRecordResult, type StaffBooking, type StaffBookingDetail, type StaffOverview, type StaffTeam,
 } from "../shared/visits-api.ts";
 import { formatShortDate } from "../shared/visits-time.ts";
-import { staffVisitDraft, staffVisitEdit, validateStaffVisitDraft, visitFieldOrder, type FieldErrors, type StaffVisitDraft } from "./visits-forms.ts";
+import { checkStaffVisitField, staffVisitDraft, staffVisitEdit, validateStaffVisitDraft, visitFieldOrder, type StaffVisitDraft } from "./visits-forms.ts";
 import { aborted, failureOf, staffRequest } from "./visits-http.ts";
 import {
   attentionNotes, bookingBadges, canMarkHandled, canRecordInOutreach, describeChange, historyActionText, historyActorText, historyNewestFirst, outreachRecordSummary,
   outreachResultText, sortBookings, sortTeams, teamNeedsLabel, teamText, type Tone,
 } from "./visits-labels.ts";
+import { useLiveChecks } from "./visits-live-checks.ts";
 import { formatInstant, formatTimeRange, formatVisitWhen, groupByDate, peopleText } from "./visits-local.ts";
 import { Badges, ConfirmDialog, Field, fieldAria, firstProblem, LoadState, Notice, preventImplicitSubmission, useFieldIds, useFocusRequest, VisitsDialog, type NoticeValue } from "./visits-ui";
 
@@ -189,7 +190,7 @@ const staffFieldOrder = ["teamId", ...visitFieldOrder, "contactEmail"];
 
 function EditVisitDialog({ booking, teams, timeZone, onSaved, onClose }: { booking: StaffBooking; teams: readonly StaffTeam[]; timeZone: string; onSaved: (text: string) => Promise<void>; onClose: () => void }) {
   const [draft, setDraft] = useState<StaffVisitDraft>(() => staffVisitDraft(booking));
-  const [errors, setErrors] = useState<FieldErrors>({});
+  const { errors, setErrors, blur } = useLiveChecks(draft, checkStaffVisitField);
   const [formError, setFormError] = useState("");
   const [busy, setBusy] = useState(false);
   const [openWindows, setOpenWindows] = useState<string>();
@@ -211,10 +212,8 @@ function EditVisitDialog({ booking, teams, timeZone, onSaved, onClose }: { booki
     return () => { window.clearTimeout(timer); controller.abort(); };
   }, [draft.date]);
 
-  function change<Key extends keyof StaffVisitDraft>(field: Key, value: StaffVisitDraft[Key]) {
-    setDraft((current) => ({ ...current, [field]: value }));
-    setErrors((current) => { if (!current[field]) return current; const next = { ...current }; delete next[field]; return next; });
-  }
+  // Live checks clear or update a field's error as it changes.
+  function change<Key extends keyof StaffVisitDraft>(field: Key, value: StaffVisitDraft[Key]) { setDraft((current) => ({ ...current, [field]: value })); }
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (busy) return;
@@ -243,29 +242,29 @@ function EditVisitDialog({ booking, teams, timeZone, onSaved, onClose }: { booki
           </select>
         </Field>
         <Field id={ids("contactName")} label="Contact name" error={errors.contactName}>
-          <input {...fieldAria(ids("contactName"), errors.contactName)} className="ui-control" maxLength={100} value={draft.contactName} onChange={(event) => change("contactName", event.target.value)} />
+          <input {...fieldAria(ids("contactName"), errors.contactName)} className="ui-control" maxLength={100} value={draft.contactName} onChange={(event) => change("contactName", event.target.value)} onBlur={blur("contactName")} />
         </Field>
         <Field id={ids("contactEmail")} label="Email" error={errors.contactEmail} help="Correcting the address stops every earlier link from working. The update email with a fresh link goes to the new address.">
-          <input {...fieldAria(ids("contactEmail"), errors.contactEmail, true)} className="ui-control" type="email" maxLength={254} spellCheck={false} value={draft.contactEmail} onChange={(event) => change("contactEmail", event.target.value)} />
+          <input {...fieldAria(ids("contactEmail"), errors.contactEmail, true)} className="ui-control" type="email" maxLength={254} spellCheck={false} value={draft.contactEmail} onChange={(event) => change("contactEmail", event.target.value)} onBlur={blur("contactEmail")} />
         </Field>
         <Field id={ids("contactPhone")} label="Phone" optional error={errors.contactPhone}>
-          <input {...fieldAria(ids("contactPhone"), errors.contactPhone)} className="ui-control" type="tel" maxLength={40} value={draft.contactPhone} onChange={(event) => change("contactPhone", event.target.value)} />
+          <input {...fieldAria(ids("contactPhone"), errors.contactPhone)} className="ui-control" type="tel" maxLength={40} value={draft.contactPhone} onChange={(event) => change("contactPhone", event.target.value)} onBlur={blur("contactPhone")} />
         </Field>
       </fieldset>
       <fieldset className="visits-fieldset" disabled={busy}>
         <legend>Visit</legend>
         <Field id={ids("date")} label="Date" error={errors.date} help={openWindows}>
-          <input {...fieldAria(ids("date"), errors.date, Boolean(openWindows))} className="ui-control" type="date" value={draft.date} onChange={(event) => change("date", event.target.value)} />
+          <input {...fieldAria(ids("date"), errors.date, Boolean(openWindows))} className="ui-control" type="date" value={draft.date} onChange={(event) => change("date", event.target.value)} onBlur={blur("date")} />
         </Field>
         <div className="visits-time-grid">
-          <Field id={ids("arrival")} label="Arrival" error={errors.arrival}><input {...fieldAria(ids("arrival"), errors.arrival)} className="ui-control" type="time" step={300} value={draft.arrival} onChange={(event) => change("arrival", event.target.value)} /></Field>
-          <Field id={ids("departure")} label="Departure" error={errors.departure}><input {...fieldAria(ids("departure"), errors.departure)} className="ui-control" type="time" step={300} value={draft.departure} onChange={(event) => change("departure", event.target.value)} /></Field>
+          <Field id={ids("arrival")} label="Arrival" error={errors.arrival}><input {...fieldAria(ids("arrival"), errors.arrival)} className="ui-control" type="time" step={300} value={draft.arrival} onChange={(event) => change("arrival", event.target.value)} onBlur={blur("arrival")} /></Field>
+          <Field id={ids("departure")} label="Departure" error={errors.departure}><input {...fieldAria(ids("departure"), errors.departure)} className="ui-control" type="time" step={300} value={draft.departure} onChange={(event) => change("departure", event.target.value)} onBlur={blur("departure")} /></Field>
         </div>
-        <Field id={ids("headcount")} label="People coming" error={errors.headcount}>
-          <input {...fieldAria(ids("headcount"), errors.headcount)} className="ui-control visits-number" type="number" inputMode="numeric" min={1} max={100} step={1} value={draft.headcount} onChange={(event) => change("headcount", event.target.value)} />
+        <Field id={ids("headcount")} label="Headcount" error={errors.headcount}>
+          <input {...fieldAria(ids("headcount"), errors.headcount)} className="ui-control visits-number" type="number" inputMode="numeric" min={1} max={100} step={1} value={draft.headcount} onChange={(event) => change("headcount", event.target.value)} onBlur={blur("headcount")} />
         </Field>
         <Field id={ids("note")} label={teamNeedsLabel} optional error={errors.note}>
-          <textarea {...fieldAria(ids("note"), errors.note)} className="ui-control" rows={3} maxLength={1000} value={draft.note} onChange={(event) => change("note", event.target.value)} />
+          <textarea {...fieldAria(ids("note"), errors.note)} className="ui-control" rows={3} maxLength={1000} value={draft.note} onChange={(event) => change("note", event.target.value)} onBlur={blur("note")} />
         </Field>
       </fieldset>
       <p className="field-help">Times are in the {timeZone.replace(/_/g, " ")} time zone. Saving emails the team the updated details with a fresh link.</p>

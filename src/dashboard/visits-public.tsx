@@ -1,4 +1,4 @@
-// The guest page at /visit and its sub pages. Anyone with the URL sees a month calendar of the coming weeks and chooses a
+// The guest page at /visit and its sub pages. Anyone with the URL sees a five-week calendar of the coming weeks and chooses a
 // day with open times; a card opens over the calendar (a full-screen sheet on phones) with that day's time slots and the
 // teams already coming, the guest's arrival and departure, their team found by number in FIRST's team lists, contact
 // details and team needs. /visit/manage changes or cancels a visit through the emailed link.
@@ -8,16 +8,17 @@ import { publicVisitsRoutes, type PublicBookingRequest, type PublicBookingResult
 import type { PublicWindow, VisitProgram } from "../shared/visits-booking.ts";
 import { formatShortDate, formatTime } from "../shared/visits-time.ts";
 import {
-  bookingFieldOrder, bookingRequest, emptyBookingDraft, newSubmissionKey, submissionAttempt, validateBookingDraft,
+  bookingFieldOrder, bookingFieldSources, bookingRequest, checkBookingField, emptyBookingDraft, newSubmissionKey, submissionAttempt, validateBookingDraft,
   type BookingDraft, type FieldErrors, type SubmissionAttempt,
 } from "./visits-forms.ts";
 import { GuestCalendar } from "./visits-guest-calendar";
 import { aborted, failureOf, guestRequest } from "./visits-http.ts";
 import { programChoices, teamNeedsHelp, teamNeedsLabel, teamText } from "./visits-labels.ts";
 import {
-  arrivalChoices, defaultDeparture, departureChoices, formatTimeRange, groupRangesByDate, guestDays, guestMonths, localReading, localSpan, peopleText, teamCountText, type LocalSpan,
+  arrivalChoices, defaultDeparture, departureChoices, formatTimeRange, groupRangesByDate, guestDays, guestLastView, localReading, localSpan, peopleText, teamCountText, type LocalSpan,
 } from "./visits-local.ts";
 import { GuestManagePage } from "./visits-manage";
+import { useLiveChecks } from "./visits-live-checks.ts";
 import { manualReason, searchableNumber, teamAfterSearch, teamEntryMode, type TeamSearch } from "./visits-team-entry.ts";
 import { Field, fieldAria, firstProblem, inPageLink, preventImplicitSubmission, useFieldIds, useFocusRequest, VisitsDialog } from "./visits-ui";
 
@@ -46,12 +47,11 @@ function GuestBookingPage() {
   const [loadError, setLoadError] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const [draft, setDraft] = useState<BookingDraft>(emptyBookingDraft);
-  const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState("");
   const [busy, setBusy] = useState(false);
   const [booked, setBooked] = useState<{ result: PublicBookingResult; team: string }>();
   const [selectedDate, setSelectedDate] = useState("");
-  const [month, setMonth] = useState("");
+  const [view, setView] = useState(0);
   const [search, setSearch] = useState<TeamSearch>({ status: "idle" });
   const [manual, setManual] = useState(false);
   const attempt = useRef<SubmissionAttempt | null>(null);
@@ -99,8 +99,7 @@ function GuestBookingPage() {
   const bookable = useMemo(() => days.flatMap((day) => day.items).filter((window) => window.status === "open" && window.endMs > now
     && arrivalChoices(window.local, earliestArrival(window, localNow)).length > 0), [days, now, localNow]);
   const calendarDays = useMemo(() => guestDays(days.flatMap((day) => day.items), new Set(bookable.map((window) => window.id))), [days, bookable]);
-  const browse = useMemo(() => guestMonths(localNow.date, calendar?.horizonDays ?? 0, calendarDays), [localNow.date, calendar, calendarDays]);
-  const shownMonth = browse.months.includes(month) ? month : browse.initial;
+  const lastView = useMemo(() => guestLastView(localNow.date, calendar?.horizonDays ?? 0, calendarDays), [localNow.date, calendar, calendarDays]);
   const calendarId = ids("calendar");
   const dayWindows = days.find((day) => day.date === selectedDate)?.items ?? [];
   const dayBookable = bookable.filter((window) => window.local.date === selectedDate);
@@ -110,11 +109,14 @@ function GuestBookingPage() {
   const entry = teamEntryMode(search, manual, draft.teamNumber);
   const matches = search.status === "found" ? search.result.matches : [];
 
-  function clearErrors(...fields: string[]) { setErrors((current) => { const next = { ...current }; for (const field of fields) delete next[field]; return next; }); }
-  function change<Key extends keyof BookingDraft>(field: Key, value: BookingDraft[Key], errorField: string = field) {
-    setDraft((current) => ({ ...current, [field]: value }));
-    if (errors[errorField]) clearErrors(errorField);
-  }
+  // Fields are checked as the guest leaves them, then as they type once a problem shows (see useLiveChecks). With several
+  // teams to pick from, a missing program means the guest has not picked theirs.
+  const checkField = (field: string, next: BookingDraft) => {
+    const problem = checkBookingField(field, next, chosen?.local.date);
+    return field === "program" && problem && entry === "pick" ? "Choose your team" : problem;
+  };
+  const { errors, blur, setErrors, clear: clearErrors } = useLiveChecks(draft, checkField, bookingFieldSources);
+  function change<Key extends keyof BookingDraft>(field: Key, value: BookingDraft[Key]) { setDraft((current) => ({ ...current, [field]: value })); }
   /** A slot with its first arrival and suggested departure. */
   function slotTimes(id: string) {
     const window = bookable.find((item) => item.id === id);
@@ -151,7 +153,7 @@ function GuestBookingPage() {
   // Choosing a day opens its card over the calendar; a day with one open time chooses it. What the guest typed stays.
   function selectDay(date: string) {
     const open = bookable.filter((window) => window.local.date === date);
-    setSelectedDate(date); setMonth(date.slice(0, 7)); setFormError("");
+    setSelectedDate(date); setFormError("");
     if (open.length === 1) chooseWindow(open[0]!.id);
     else { setDraft((current) => ({ ...current, windowId: "", arrival: "", departure: "" })); clearErrors("date", "arrival", "departure"); }
   }
@@ -194,38 +196,34 @@ function GuestBookingPage() {
   }
 
   const reason = manualReason(search, manual, draft.teamNumber);
-  const teamFields = <fieldset className="visits-fieldset" disabled={busy}>
-    <legend>Your team</legend>
-    <Field id={ids("teamNumber")} label="Team number" error={errors.teamNumber} help={entry === "searching" ? `Looking up team ${searchableNumber(draft.teamNumber)}...` : undefined}>
-      <input {...fieldAria(ids("teamNumber"), errors.teamNumber, entry === "searching")} className="ui-control visits-number" required autoComplete="off" spellCheck={false} inputMode={entry === "manual" && draft.program === "Other" ? "text" : "numeric"} maxLength={12} value={draft.teamNumber} onChange={(event) => { setManual(false); change("teamNumber", event.target.value); }} />
-    </Field>
-    {entry === "confirm" && matches[0] && <div className="visits-team-found" role="status">
-      <span><strong>{teamText(matches[0])}</strong>{matches[0].location && <span>{matches[0].location}</span>}</span>
-      <button className="ui-button visits-link-button" type="button" onClick={enterByHand}>Not your team?</button>
-    </div>}
-    {entry === "pick" && <fieldset className="visits-fieldset visits-team-pick" aria-describedby={errors.program ? `${ids("program")}-error` : undefined}>
-      <legend>Which team is yours?</legend>
+  // What sits beside the team number: the team found, a choice between matches, the program and name typed by hand, or a
+  // line saying what the lookup is doing.
+  const teamArea = entry === "confirm" && matches[0] ? <div className="visits-team-found" role="status">
+    <span><strong>{teamText(matches[0])}</strong>{matches[0].location && <span>{matches[0].location}</span>}</span>
+    <button className="ui-button visits-link-button" type="button" onClick={enterByHand}>Not your team?</button>
+  </div> : entry === "pick" ? <fieldset className="visits-fieldset visits-team-pick" aria-describedby={errors.program ? `${ids("program")}-error` : undefined}>
+    <legend>Which team is yours?</legend>
+    <div className="visits-team-pick-options">
       {matches.map((match, index) => <label key={match.program} className="checkbox-field">
         <input id={index === 0 ? ids("program") : undefined} type="radio" name={ids("team")} checked={draft.program === match.program} onChange={() => chooseMatch(match)} />
         <span><strong>{teamText(match)}</strong>{match.location && <span className="visits-team-location">{match.location}</span>}</span>
       </label>)}
-      {errors.program && <span id={`${ids("program")}-error`} className="field-help visits-field-error">{errors.program}</span>}
-      <button className="ui-button visits-link-button" type="button" onClick={enterByHand}>Not listed? Enter your team</button>
-    </fieldset>}
-    {entry === "manual" && <>
-      {reason && <p className="field-help" role="status">{reason}</p>}
-      <Field id={ids("program")} label="Program" error={errors.program}>
-        <select {...fieldAria(ids("program"), errors.program)} className="ui-control ui-native-select" required value={draft.program} onChange={(event) => { filledByLookup.current = false; change("program", event.target.value as VisitProgram | ""); }}>
-          <option value="">Choose a program</option>
-          {programChoices.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}
-        </select>
-      </Field>
-      <Field id={ids("teamName")} label="Team name" error={errors.teamName}>
-        <input {...fieldAria(ids("teamName"), errors.teamName)} className="ui-control" required autoComplete="organization" maxLength={100} value={draft.teamName} onChange={(event) => { filledByLookup.current = false; change("teamName", event.target.value); }} />
-      </Field>
-      {manual && matches.length > 0 && <button className="ui-button visits-link-button" type="button" onClick={useLookup}>Use the team we found</button>}
-    </>}
-  </fieldset>;
+    </div>
+    {errors.program && <span id={`${ids("program")}-error`} className="field-help visits-field-error">{errors.program}</span>}
+    <button className="ui-button visits-link-button" type="button" onClick={enterByHand}>Not listed? Enter your team</button>
+  </fieldset> : entry === "manual" ? <div className="visits-team-manual">
+    {reason && <p className="field-help" role="status">{reason}</p>}
+    <Field id={ids("program")} label="Program" error={errors.program}>
+      <select {...fieldAria(ids("program"), errors.program)} onBlur={blur("program")} className="ui-control ui-native-select" required value={draft.program} onChange={(event) => { filledByLookup.current = false; change("program", event.target.value as VisitProgram | ""); }}>
+        <option value="">Choose a program</option>
+        {programChoices.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}
+      </select>
+    </Field>
+    <Field id={ids("teamName")} label="Team name" error={errors.teamName}>
+      <input {...fieldAria(ids("teamName"), errors.teamName)} onBlur={blur("teamName")} className="ui-control" required autoComplete="organization" maxLength={100} value={draft.teamName} onChange={(event) => { filledByLookup.current = false; change("teamName", event.target.value); }} />
+    </Field>
+    {manual && matches.length > 0 && <button className="ui-button visits-link-button" type="button" onClick={useLookup}>Use the team we found</button>}
+  </div> : <p className="field-help visits-team-status" role="status">{entry === "searching" ? `Looking up team ${searchableNumber(draft.teamNumber)}...` : "Enter your team number to find your team."}</p>;
 
   return <main id="dashboard-content" className="visits-public-page">
     <header className="visits-public-intro">
@@ -237,7 +235,7 @@ function GuestBookingPage() {
     {loadError && !calendar && <div className="visits-load-error"><p className="ui-status settings-notice" data-tone="error" role="alert">{loadError}</p><button className="ui-button" type="button" onClick={() => void load()}>Try again</button></div>}
     {calendar && <>
       {bookable.length === 0 && <p className="ui-card visits-empty" role="status">No open times are posted for the next {Math.round(calendar.horizonDays / 7)} weeks. Check back later.</p>}
-      <GuestCalendar id={calendarId} months={browse.months} month={shownMonth} onMonth={setMonth} today={localNow.date} days={calendarDays} selected={selectedDate} onSelect={selectDay} />
+      <GuestCalendar id={calendarId} today={localNow.date} view={view} lastView={lastView} onView={setView} days={calendarDays} selected={selectedDate} onSelect={selectDay} />
     </>}
     <p className="visits-staff-link"><a href="/dashboard">Staff sign in</a></p>
     {selectedDate && <VisitsDialog title={formatShortDate(selectedDate)} busy={busy} onClose={closeDay} className="visits-dialog--sheet" dismissOnBackdrop>
@@ -251,10 +249,10 @@ function GuestBookingPage() {
           {formError || errors.date || "No open times are left on this day. Choose another highlighted day."}
         </p>
         {dayWindows.map((window) => <SlotCard key={window.id} window={window} timeZone={timeZone} />)}
-      </div> : <form className="ui-form visits-form" noValidate onSubmit={(event) => void submit(event)} onKeyDown={preventImplicitSubmission}>
+      </div> : <form className="ui-form visits-form visits-booking-form" noValidate onSubmit={(event) => void submit(event)} onKeyDown={preventImplicitSubmission}>
         {formError && <p ref={formErrorRef} tabIndex={-1} className="ui-status settings-notice" data-tone="error" role="alert">{formError}</p>}
         <fieldset className="visits-fieldset visits-slots" disabled={busy} aria-describedby={errors.date ? `${ids("date")}-error` : undefined}>
-          <legend>Time slot</legend>
+          <legend className="visually-hidden">Time slot</legend>
           {dayWindows.map((window) => {
             const open = dayBookable.some((item) => item.id === window.id);
             return <SlotCard key={window.id} window={window} timeZone={timeZone} choice={open
@@ -263,47 +261,45 @@ function GuestBookingPage() {
           })}
           {errors.date && <span id={`${ids("date")}-error`} className="field-help visits-field-error">{errors.date}</span>}
         </fieldset>
-        <fieldset className="visits-fieldset" disabled={busy}>
-          <legend>When you will be there</legend>
-          <div className="visits-time-grid">
-            <Field id={ids("arrival")} label="Arrival" error={errors.arrival}>
-              <select {...fieldAria(ids("arrival"), errors.arrival)} className="ui-control ui-native-select" required disabled={!chosen} value={draft.arrival} onChange={(event) => chooseArrival(event.target.value)}>
-                {!chosen && <option value="">Choose a slot</option>}
-                {arrivals.map((time) => <option key={time} value={time}>{formatTime(time)}</option>)}
-              </select>
-            </Field>
-            <Field id={ids("departure")} label="Departure" error={errors.departure}>
-              <select {...fieldAria(ids("departure"), errors.departure)} className="ui-control ui-native-select" required disabled={!chosen} value={draft.departure} onChange={(event) => change("departure", event.target.value)}>
-                {!chosen && <option value="">Choose a slot</option>}
-                {departures.map((time) => <option key={time} value={time}>{formatTime(time)}</option>)}
-              </select>
-            </Field>
-          </div>
-        </fieldset>
-        {teamFields}
-        <fieldset className="visits-fieldset" disabled={busy}>
-          <legend>Contact</legend>
-          <Field id={ids("contactName")} label="Your name" error={errors.contactName}>
-            <input {...fieldAria(ids("contactName"), errors.contactName)} className="ui-control" required autoComplete="name" maxLength={100} value={draft.contactName} onChange={(event) => change("contactName", event.target.value)} />
+        {/* One grid on wide screens: times and headcount, the team, the contact, then team needs; one column on phones. */}
+        <fieldset className="visits-fieldset visits-booking-grid" disabled={busy}>
+          <legend className="visually-hidden">Your visit</legend>
+          <Field id={ids("arrival")} label="Arrival" error={errors.arrival} className="visits-span-2 visits-pair">
+            <select {...fieldAria(ids("arrival"), errors.arrival)} onBlur={blur("arrival")} className="ui-control ui-native-select" required disabled={!chosen} value={draft.arrival} onChange={(event) => chooseArrival(event.target.value)}>
+              {!chosen && <option value="">Choose a slot</option>}
+              {arrivals.map((time) => <option key={time} value={time}>{formatTime(time)}</option>)}
+            </select>
           </Field>
-          <Field id={ids("contactEmail")} label="Email" error={errors.contactEmail} help="The confirmation and the link to change or cancel the visit go here.">
-            <input {...fieldAria(ids("contactEmail"), errors.contactEmail, true)} className="ui-control" type="email" required autoComplete="email" inputMode="email" spellCheck={false} maxLength={254} value={draft.contactEmail} onChange={(event) => change("contactEmail", event.target.value)} />
+          <Field id={ids("departure")} label="Departure" error={errors.departure} className="visits-span-2 visits-pair">
+            <select {...fieldAria(ids("departure"), errors.departure)} onBlur={blur("departure")} className="ui-control ui-native-select" required disabled={!chosen} value={draft.departure} onChange={(event) => change("departure", event.target.value)}>
+              {!chosen && <option value="">Choose a slot</option>}
+              {departures.map((time) => <option key={time} value={time}>{formatTime(time)}</option>)}
+            </select>
           </Field>
-          <Field id={ids("contactPhone")} label="Phone" optional error={errors.contactPhone}>
-            <input {...fieldAria(ids("contactPhone"), errors.contactPhone)} className="ui-control" type="tel" autoComplete="tel" maxLength={40} value={draft.contactPhone} onChange={(event) => change("contactPhone", event.target.value)} />
+          <Field id={ids("headcount")} label="Headcount" error={errors.headcount} className="visits-span-2">
+            <input {...fieldAria(ids("headcount"), errors.headcount)} onBlur={blur("headcount")} className="ui-control" type="number" inputMode="numeric" required min={1} max={100} step={1} value={draft.headcount} onChange={(event) => change("headcount", event.target.value)} />
           </Field>
-        </fieldset>
-        <fieldset className="visits-fieldset" disabled={busy}>
-          <legend>Visit</legend>
-          <Field id={ids("headcount")} label="People coming" error={errors.headcount} help="Count everyone: students, mentors and parents.">
-            <input {...fieldAria(ids("headcount"), errors.headcount, true)} className="ui-control visits-number" type="number" inputMode="numeric" required min={1} max={100} step={1} value={draft.headcount} onChange={(event) => change("headcount", event.target.value)} />
+          <Field id={ids("teamNumber")} label="Team number" error={errors.teamNumber} className="visits-span-2">
+            <input {...fieldAria(ids("teamNumber"), errors.teamNumber)} onBlur={blur("teamNumber")} className="ui-control" required autoComplete="off" spellCheck={false} inputMode={entry === "manual" && draft.program === "Other" ? "text" : "numeric"} maxLength={12} value={draft.teamNumber} onChange={(event) => { setManual(false); change("teamNumber", event.target.value); }} />
           </Field>
-          <Field id={ids("note")} label={teamNeedsLabel} optional error={errors.note} help={teamNeedsHelp}>
-            <textarea {...fieldAria(ids("note"), errors.note, true)} className="ui-control" rows={3} maxLength={1000} value={draft.note} onChange={(event) => change("note", event.target.value)} />
+          <div className="visits-span-4 visits-team-area">{teamArea}</div>
+          <Field id={ids("contactName")} label="Your name" error={errors.contactName} className="visits-span-2">
+            <input {...fieldAria(ids("contactName"), errors.contactName)} onBlur={blur("contactName")} className="ui-control" required autoComplete="name" maxLength={100} value={draft.contactName} onChange={(event) => change("contactName", event.target.value)} />
+          </Field>
+          <Field id={ids("contactEmail")} label="Email" error={errors.contactEmail} className="visits-span-2">
+            <input {...fieldAria(ids("contactEmail"), errors.contactEmail)} onBlur={blur("contactEmail")} className="ui-control" type="email" required autoComplete="email" inputMode="email" spellCheck={false} maxLength={254} value={draft.contactEmail} onChange={(event) => change("contactEmail", event.target.value)} />
+          </Field>
+          <Field id={ids("contactPhone")} label="Phone" optional error={errors.contactPhone} className="visits-span-2">
+            <input {...fieldAria(ids("contactPhone"), errors.contactPhone)} onBlur={blur("contactPhone")} className="ui-control" type="tel" autoComplete="tel" maxLength={40} value={draft.contactPhone} onChange={(event) => change("contactPhone", event.target.value)} />
+          </Field>
+          <Field id={ids("note")} label={teamNeedsLabel} optional error={errors.note} help={teamNeedsHelp} className="visits-span-6">
+            <textarea {...fieldAria(ids("note"), errors.note, true)} onBlur={blur("note")} className="ui-control" rows={2} maxLength={1000} value={draft.note} onChange={(event) => change("note", event.target.value)} />
           </Field>
         </fieldset>
-        <p className="field-help">Everyone with this page sees your team, your times and how many people are coming. Contact details and team needs go only to the team you are visiting.</p>
-        <div className="dialog-actions"><button className="ui-button ui-button--primary" type="submit" disabled={busy}>{busy ? "Booking..." : "Book visit"}</button></div>
+        <div className="dialog-actions visits-booking-actions">
+          <p className="field-help">The confirmation and a link to change or cancel go to your email. Everyone with this page sees your team, times and headcount; contact details and team needs go only to the team you are visiting.</p>
+          <button className="ui-button ui-button--primary" type="submit" disabled={busy}>{busy ? "Booking..." : "Book visit"}</button>
+        </div>
       </form>}
     </VisitsDialog>}
   </main>;
