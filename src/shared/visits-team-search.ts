@@ -38,10 +38,28 @@ const maximumFirstNameLength = 100;
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const textOf = (value: unknown) => typeof value === "string" ? singleLine(value) : "";
 
-/** `currentSeason` from an API root answer, or null when it is missing or not a plausible year. */
-export function currentSeasonOf(body: unknown): number | null {
-  const season = isRecord(body) ? body.currentSeason : undefined;
+const plausibleSeason = (value: unknown): number | null => {
+  const season = typeof value === "string" && /^\s*\d{4}\s*$/.test(value) ? Number(value) : value;
   return Number.isInteger(season) && (season as number) >= 2000 && (season as number) <= 2999 ? season as number : null;
+};
+
+/**
+ * The current season from an API root answer: `currentSeason` as a number or a numeric string, in any letter case, or that
+ * name followed by a year in an answer that is not JSON. Null when missing or not a plausible year.
+ */
+export function currentSeasonOf(body: unknown, text = ""): number | null {
+  const key = isRecord(body) ? Object.keys(body).find((name) => name.toLowerCase() === "currentseason") : undefined;
+  const season = key ? plausibleSeason((body as Record<string, unknown>)[key]) : null;
+  return season ?? plausibleSeason(/currentSeason\W{0,5}(\d{4})/i.exec(text)?.[1]);
+}
+
+/**
+ * The season FIRST is most likely in when its root does not say: FRC names seasons for the year of their competitions,
+ * FTC for the year they start in September.
+ */
+export function likelySeason(program: FirstApiProgram, now: number): number {
+  const date = new Date(now);
+  return program === "FTC" && date.getUTCMonth() < 8 ? date.getUTCFullYear() - 1 : date.getUTCFullYear();
 }
 
 /** "City, StateProv" in the USA and Canada, "City, Country" elsewhere, the known parts only, or empty. */
@@ -58,11 +76,15 @@ export type FirstTeam = { readonly name: string; readonly location: string };
  * list has no such team, undefined when the answer is not a team list. A team FIRST lists without a name counts as none.
  */
 export function firstTeamOf(body: unknown, number: string): FirstTeam | null | undefined {
-  if (!isRecord(body) || !Array.isArray(body.teams)) return undefined;
-  const team = body.teams.find((item) => isRecord(item) && String(item.teamNumber) === number) as Record<string, unknown> | undefined;
-  const name = team ? (textOf(team.nameShort) || textOf(team.nameFull)).slice(0, maximumFirstNameLength).trim() : "";
-  return name ? { name, location: teamLocation(team!) } : null;
+  const list = isRecord(body) ? keyed(body).teams : undefined;
+  if (!Array.isArray(list)) return undefined;
+  const team = list.filter(isRecord).map(keyed).find((item) => String(item.teamnumber) === number);
+  const name = team ? (textOf(team.nameshort) || textOf(team.namefull)).slice(0, maximumFirstNameLength).trim() : "";
+  return name ? { name, location: teamLocation({ city: team!.city, stateProv: team!.stateprov, country: team!.country }) } : null;
 }
+
+/** A record with lower-case keys, so FIRST's answers read the same whatever case its field names use. */
+const keyed = (record: Record<string, unknown>): Record<string, unknown> => Object.fromEntries(Object.entries(record).map(([key, value]) => [key.toLowerCase(), value]));
 
 const programOrder = (program: VisitProgram) => visitPrograms.indexOf(program);
 

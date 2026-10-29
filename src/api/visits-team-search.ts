@@ -7,22 +7,26 @@ import type { D1Database } from "@lancerlogin/module-sdk/api";
 import type { FirstApiProgram, FirstApiStatus, PublicTeamSearch, TeamMatch } from "../shared/visits-api.ts";
 import { parseTeamNumber, type VisitProgram } from "../shared/visits-booking.ts";
 import {
-  basicAuthorization, currentSeasonOf, firstApiPrograms, firstRequestLimit, firstRequestWindowMs, firstRootUrl, firstSeasonCacheMs, firstSeasonUrl,
+  basicAuthorization, currentSeasonOf, firstApiPrograms, firstRequestLimit, firstRequestWindowMs, firstRootUrl, firstSeasonCacheMs, firstSeasonUrl, likelySeason,
   firstTeamCacheMs, firstTeamOf, firstTeamsUrl, firstTimeoutMs, isFirstApiProgram, mergeTeamMatches, parseFirstCredential, type FirstTeam,
 } from "../shared/visits-team-search.ts";
 import { installationId, iso, objectBody, ok, onlyFields, refuse, rows, VisitsError, type RouteResult, type VisitsDeps } from "./visits-runtime.ts";
 
 type CredentialRow = { program: FirstApiProgram; username: string; ciphertext: string; iv: string; checked_at: string };
 /** FIRST's status and JSON body (null unless 200), or null when FIRST could not be reached in time or was not asked. */
-type Reply = { readonly status: number; readonly body: unknown } | null;
+/** FIRST's status and answer: parsed JSON, or null with the first part of the text when the answer is not JSON. */
+type Reply = { readonly status: number; readonly body: unknown; readonly text: string } | null;
 type Get = (url: string) => Promise<Reply>;
 
 /** One GET to FIRST with the credential, given up after `firstTimeoutMs`. */
 async function firstGet(deps: VisitsDeps, url: string, authorization: string): Promise<Reply> {
   try {
     const response = await deps.fetch(url, { headers: { accept: "application/json", authorization }, signal: AbortSignal.timeout(firstTimeoutMs) });
-    if (!response.ok) { await response.body?.cancel().catch(() => undefined); return { status: response.status, body: null }; }
-    return { status: response.status, body: await response.json().catch(() => null) };
+    if (!response.ok) { await response.body?.cancel().catch(() => undefined); return { status: response.status, body: null, text: "" }; }
+    const text = await response.text();
+    let body: unknown = null;
+    try { body = JSON.parse(text.replace(/^﻿/, "")); } catch { /* Not JSON: the text alone is kept. */ }
+    return { status: response.status, body, text: body === null ? text.slice(0, 2000) : "" };
   } catch { return null; }
 }
 
@@ -37,13 +41,16 @@ async function reserveRequest(db: D1Database, now: number): Promise<boolean> {
   return reserved?.meta?.changes === 1;
 }
 
-/** The program's current season: cached for a day, else from the API root. A stale season serves when the root cannot. */
-async function currentSeason(db: D1Database, program: FirstApiProgram, now: number, get: Get): Promise<number | null> {
+/**
+ * The program's current season: cached for a day, else from the API root. When the root cannot say, a stale season serves,
+ * else the season the date suggests (not cached).
+ */
+async function currentSeason(db: D1Database, program: FirstApiProgram, now: number, get: Get): Promise<number> {
   const cached = await db.prepare("SELECT season,checked_ms FROM visits_first_seasons WHERE installation_id=? AND program=?").bind(installationId, program).first<{ season: number; checked_ms: number }>();
   if (cached && cached.checked_ms > now - firstSeasonCacheMs) return cached.season;
   const reply = await get(firstRootUrl(program));
-  const season = reply?.status === 200 ? currentSeasonOf(reply.body) : null;
-  if (season === null) return cached?.season ?? null;
+  const season = reply?.status === 200 ? currentSeasonOf(reply.body, reply.text) : null;
+  if (season === null) return cached?.season ?? likelySeason(program, now);
   await db.prepare("INSERT INTO visits_first_seasons(installation_id,program,season,checked_ms) VALUES(?,?,?,?) ON CONFLICT(installation_id,program) DO UPDATE SET season=excluded.season,checked_ms=excluded.checked_ms")
     .bind(installationId, program, season, now).run();
   return season;
@@ -93,7 +100,6 @@ async function lookUpFirst(db: D1Database, deps: VisitsDeps, program: FirstApiPr
   if (!authorization) return unanswered;
   const get: Get = async (url) => await reserveRequest(db, deps.now()) ? firstGet(deps, url, authorization) : null;
   const season = await currentSeason(db, program, now, get);
-  if (season === null) return unanswered;
   // FIRST can report a new season before its team lists are published, so a season that fails still falls back to the
   // previous one. A team found in either season answers; "no team" needs both seasons to have said so.
   const results: (FirstTeam | null | undefined)[] = [];
@@ -157,8 +163,8 @@ export async function saveFirstCredential(db: D1Database, deps: VisitsDeps, valu
   // FRC's API root needs the credential and FTC's does not; a 401 or 403 from any call means FIRST refused it. A season
   // FIRST reports before its data is published can fail, so the previous season's summary also proves the credential.
   const season = await currentSeason(db, program, now, get);
-  let reply = season === null ? null : await get(firstSeasonUrl(program, season));
-  if (season !== null && reply?.status !== 200) reply = await get(firstSeasonUrl(program, season - 1));
+  let reply = await get(firstSeasonUrl(program, season));
+  if (reply?.status !== 200) reply = await get(firstSeasonUrl(program, season - 1));
   if (reply?.status !== 200) {
     const answer = last as Reply;
     const what = !answer ? "did not answer" : answer.status === 200 ? "gave an answer Guest Visits could not read" : `answered with HTTP ${answer.status}`;

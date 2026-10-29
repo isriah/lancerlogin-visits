@@ -7,7 +7,7 @@ import { visitsHarness, type Harness } from "./helpers/visits-harness.ts";
 import type { FirstApiProgram, TeamMatch } from "../src/shared/visits-api.ts";
 import type { VisitsCredentials } from "../src/api/visits-runtime.ts";
 import {
-  basicAuthorization, currentSeasonOf, firstRequestLimit, firstRootUrl, firstSeasonUrl, firstTeamOf, firstTeamsUrl, mergeTeamMatches, parseFirstCredential, teamLocation,
+  basicAuthorization, currentSeasonOf, firstRequestLimit, firstRootUrl, firstSeasonUrl, firstTeamOf, firstTeamsUrl, likelySeason, mergeTeamMatches, parseFirstCredential, teamLocation,
 } from "../src/shared/visits-team-search.ts";
 
 const dayMs = 86_400_000;
@@ -24,6 +24,8 @@ type Failure = number | "timeout" | "ok";
 class FakeFirst {
   seasons: Record<FirstApiProgram, number> = { FRC: 2026, FTC: 2025 };
   readonly unpublished = new Set<string>();
+  /** Programs whose root answers with something that names no current season. */
+  readonly unreadableRoot = new Set<FirstApiProgram>();
   readonly teams = new Map<string, FirstTeamRecord[]>();
   readonly accepted = new Set([basicAuthorization("lancers", "frc-token-0001"), basicAuthorization("lancers-ftc", "ftc-token-0001")]);
   readonly requests: { url: string; authorization: string }[] = [];
@@ -41,6 +43,7 @@ class FakeFirst {
     const [, , season, resource] = address.pathname.split("/");
     if (!season && program === "FTC") return Response.json({ name: `${program} Events API`, currentSeason: this.seasons[program], maxSeason: this.seasons[program] });
     if (!this.accepted.has(authorization)) return Response.json({ message: "Unauthorized" }, { status: 401 });
+    if (!season && this.unreadableRoot.has(program)) return new Response("FIRST Events API service index", { status: 200 });
     if (!season) return Response.json({ name: `${program} Events API`, currentSeason: this.seasons[program], maxSeason: this.seasons[program] });
     if (this.unpublished.has(`${program} ${season}`)) return Response.json({ message: "An error has occurred." }, { status: 500 });
     if (!resource) return Response.json({ eventCount: 12, gameName: "Synthetic" });
@@ -99,7 +102,14 @@ test("FIRST's answers are read: short name or full name, location, missing teams
   assert.equal(teamLocation({ stateProv: "Michigan", country: "USA" }), "Michigan");
   assert.equal(teamLocation({ city: null, stateProv: "", country: undefined }), "");
   assert.equal(currentSeasonOf({ currentSeason: 2026, maxSeason: 2027 }), 2026);
-  assert.equal(currentSeasonOf({ currentSeason: "2026" }), null);
+  assert.equal(currentSeasonOf({ currentSeason: "2026" }), 2026, "a numeric string reads too");
+  assert.equal(currentSeasonOf({ CurrentSeason: 2027 }), 2027, "any letter case");
+  assert.equal(currentSeasonOf(null, "<ApiIndex><currentSeason>2026</currentSeason></ApiIndex>"), 2026, "an answer that is not JSON");
+  assert.equal(currentSeasonOf({ currentSeason: "next" }), null);
+  assert.equal(likelySeason("FRC", Date.UTC(2026, 9, 28)), 2026);
+  assert.equal(likelySeason("FTC", Date.UTC(2026, 9, 28)), 2026, "FTC seasons start in September");
+  assert.equal(likelySeason("FTC", Date.UTC(2027, 2, 1)), 2026);
+  assert.deepEqual(firstTeamOf({ Teams: [{ TeamNumber: 321, NameShort: "Lancers", City: "Lansdale", StateProv: "Pennsylvania", Country: "USA" }] }, "321"), { name: "Lancers", location: "Lansdale, Pennsylvania" }, "team lists in any letter case");
   assert.equal(currentSeasonOf([]), null);
 });
 
@@ -349,4 +359,16 @@ test("a season FIRST reports before publishing it falls back to the previous one
   assert.equal(failed.status, 502);
   assert.match((failed.body as { error: string }).error, /FIRST's FTC API answered with HTTP 500, so the credential was not saved/);
   assert.doesNotMatch(JSON.stringify(failed.body), /token-0001/);
+});
+
+test("a root that names no season falls back to the season the date suggests, without caching it", async () => {
+  const { harness, first } = await lookupHarness();
+  first.unreadableRoot.add("FRC");
+  first.add("FRC", 2026, { teamNumber: 321, nameShort: "Lancers", city: "Lansdale", stateProv: "Pennsylvania", country: "USA" });
+  // The harness clock is October 28, 2026, so FRC's likely season is 2026.
+  const saved = await harness.call("PUT", "/admin/visits/settings/first-api", { body: frcCredential });
+  assert.equal(saved.status, 200, JSON.stringify(saved.body));
+  assert.deepEqual(first.requests.map((request) => request.url), [firstRootUrl("FRC"), firstSeasonUrl("FRC", 2026)]);
+  assert.equal(harness.count("SELECT COUNT(*) AS n FROM visits_first_seasons WHERE program='FRC'"), 0, "a guessed season is not cached");
+  assert.deepEqual((await search(harness, "321")).body, { matches: [match("FRC", "321", "Lancers", "Lansdale, Pennsylvania")], complete: false });
 });
