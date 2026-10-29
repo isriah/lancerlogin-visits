@@ -17,8 +17,8 @@ type Failure = number | "timeout" | "ok";
 
 /**
  * FIRST's FRC and FTC Events APIs as the handlers see them: a root with `currentSeason` (FRC's needs an accepted Basic
- * credential, FTC's does not), and a season summary and team list that need one. A team number FRC does not know is a
- * 404, FTC answers an empty list. A season in `unpublished` answers 500, as a season FIRST reports before its data is
+ * credential, FTC's does not), and a season summary and team list that need one. A team number neither knows is a
+ * 400, as FIRST's real APIs answer. A season in `unpublished` answers 500, as a season FIRST reports before its data is
  * published may. Failures queue per program and apply to that program's next requests in order.
  */
 class FakeFirst {
@@ -49,7 +49,7 @@ class FakeFirst {
     if (!resource) return Response.json({ eventCount: 12, gameName: "Synthetic" });
     const number = Number(address.searchParams.get("teamNumber"));
     const teams = (this.teams.get(`${program} ${season}`) ?? []).filter((team) => team.teamNumber === number);
-    if (!teams.length && program === "FRC") return Response.json({ message: "No teams found" }, { status: 404 });
+    if (!teams.length) return Response.json({ message: `No team ${number} in season ${season}` }, { status: 400 });
     return Response.json({ teams, teamCountTotal: teams.length, teamCountPage: teams.length, pageCurrent: 1, pageTotal: 1 });
   };
 }
@@ -369,6 +369,6 @@ test("a root that names no season falls back to the season the date suggests, wi
   const saved = await harness.call("PUT", "/admin/visits/settings/first-api", { body: frcCredential });
   assert.equal(saved.status, 200, JSON.stringify(saved.body));
   assert.deepEqual(first.requests.map((request) => request.url), [firstRootUrl("FRC"), firstSeasonUrl("FRC", 2026)]);
-  assert.equal(harness.count("SELECT COUNT(*) AS n FROM visits_first_seasons WHERE program='FRC'"), 0, "a guessed season is not cached");
+  assert.deepEqual(harness.db.rows("SELECT season FROM visits_first_seasons WHERE program='FRC'"), [{ season: 2026 }], "the season the date suggests is cached for a day");
   assert.deepEqual((await search(harness, "321")).body, { matches: [match("FRC", "321", "Lancers", "Lansdale, Pennsylvania")], complete: false });
 });

@@ -42,15 +42,15 @@ async function reserveRequest(db: D1Database, now: number): Promise<boolean> {
 }
 
 /**
- * The program's current season: cached for a day, else from the API root. When the root cannot say, a stale season serves,
- * else the season the date suggests (not cached).
+ * The program's current season, cached for a day: from the API root, or the season the date suggests when the root
+ * answers without naming one, as FRC's does. A root that fails caches nothing; a stale season, else the date, serves.
  */
 async function currentSeason(db: D1Database, program: FirstApiProgram, now: number, get: Get): Promise<number> {
   const cached = await db.prepare("SELECT season,checked_ms FROM visits_first_seasons WHERE installation_id=? AND program=?").bind(installationId, program).first<{ season: number; checked_ms: number }>();
   if (cached && cached.checked_ms > now - firstSeasonCacheMs) return cached.season;
   const reply = await get(firstRootUrl(program));
-  const season = reply?.status === 200 ? currentSeasonOf(reply.body, reply.text) : null;
-  if (season === null) return cached?.season ?? likelySeason(program, now);
+  if (reply?.status !== 200) return cached?.season ?? likelySeason(program, now);
+  const season = currentSeasonOf(reply.body, reply.text) ?? likelySeason(program, now);
   await db.prepare("INSERT INTO visits_first_seasons(installation_id,program,season,checked_ms) VALUES(?,?,?,?) ON CONFLICT(installation_id,program) DO UPDATE SET season=excluded.season,checked_ms=excluded.checked_ms")
     .bind(installationId, program, season, now).run();
   return season;
@@ -100,12 +100,13 @@ async function lookUpFirst(db: D1Database, deps: VisitsDeps, program: FirstApiPr
   if (!authorization) return unanswered;
   const get: Get = async (url) => await reserveRequest(db, deps.now()) ? firstGet(deps, url, authorization) : null;
   const season = await currentSeason(db, program, now, get);
-  // FIRST can report a new season before its team lists are published, so a season that fails still falls back to the
-  // previous one. A team found in either season answers; "no team" needs both seasons to have said so.
+  // FIRST answers HTTP 400 (both FRC and FTC) or 404 for a number with no team in that season. It can also report a new
+  // season before its team lists are published, so a season that fails still falls back to the previous one. A team found
+  // in either season answers; "no team" needs both seasons to have said so.
   const results: (FirstTeam | null | undefined)[] = [];
   for (const year of [season, season - 1]) {
     const reply = await get(firstTeamsUrl(program, year, number));
-    const found = reply?.status === 404 ? null : reply?.status === 200 ? firstTeamOf(reply.body, number) : undefined;
+    const found = reply?.status === 400 || reply?.status === 404 ? null : reply?.status === 200 ? firstTeamOf(reply.body, number) : undefined;
     results.push(found);
     if (found) break;
   }
