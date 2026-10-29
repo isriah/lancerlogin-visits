@@ -49,7 +49,7 @@ export function GuestCalendar({ id, months, month, onMonth, today, days, selecte
           aria-label={`${formatShortDate(date)}: ${guestDayText(day)}`} onClick={() => onSelect(date)}>
           <span className="visits-calendar-number">{Number(date.slice(8))}</span>
           {day && day.state !== "closed" && <span className="visits-calendar-detail" aria-hidden="true">
-            {day.state === "canceled" ? "Canceled" : `${compactTime(day.startTime)} to ${compactTime(day.endTime)}`}
+            {day.state === "canceled" ? "Canceled" : day.openWindows > 1 ? `${day.openWindows} times` : `${compactTime(day.startTime)} to ${compactTime(day.endTime)}`}
           </span>}
           {day?.state === "open" && day.teams > 0 && <span className="visits-calendar-teams" aria-hidden="true">{day.teams} {day.teams === 1 ? "team" : "teams"}</span>}
         </button>;

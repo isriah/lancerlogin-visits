@@ -50,6 +50,7 @@ function GuestBookingPage() {
   const [booked, setBooked] = useState<{ result: PublicBookingResult; team: string }>();
   const [selectedDate, setSelectedDate] = useState("");
   const [month, setMonth] = useState("");
+  const [reveal, setReveal] = useState(0);
   const [lookupNote, setLookupNote] = useState("");
   const attempt = useRef<SubmissionAttempt | null>(null);
   const filledName = useRef<string | null>(null);
@@ -67,6 +68,13 @@ function GuestBookingPage() {
   useEffect(() => { const controller = new AbortController(); void load(controller.signal); return () => controller.abort(); }, []);
   useEffect(() => { if (formError) formErrorRef.current?.focus(); }, [formError]);
   useEffect(() => { if (booked) receiptHeading.current?.focus(); }, [booked]);
+  // A chosen day's card scrolls to the top of the screen with focus on its heading, so phone users see it open.
+  useEffect(() => {
+    const heading = reveal ? document.getElementById(ids("day")) : null;
+    if (!heading) return;
+    heading.focus({ preventScroll: true });
+    heading.closest("section")?.scrollIntoView({ block: "start", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  }, [reveal]);
 
   // Fill the team name from the saved team once the program and number identify one.
   useEffect(() => {
@@ -107,12 +115,26 @@ function GuestBookingPage() {
     setDraft((current) => ({ ...current, [field]: value }));
     if (errors[errorField]) setErrors((current) => { const next = { ...current }; delete next[errorField]; return next; });
   }
-  function chooseWindow(id: string) {
+  /** A slot with its first arrival and suggested departure. */
+  function slotTimes(id: string) {
     const window = bookable.find((item) => item.id === id);
     const arrival = window ? arrivalChoices(window.local, earliestArrival(window, localNow))[0] ?? "" : "";
-    setDraft((current) => ({ ...current, windowId: id, arrival, departure: window && arrival ? defaultDeparture(window.local, arrival) : "" }));
+    return { windowId: id, arrival, departure: window && arrival ? defaultDeparture(window.local, arrival) : "" };
+  }
+  function chooseWindow(id: string) {
+    setDraft((current) => ({ ...current, ...slotTimes(id) }));
     setErrors((current) => { const next = { ...current }; delete next.date; delete next.arrival; delete next.departure; return next; });
   }
+
+  // After a refresh, keep the chosen slot in step with the day: a slot that closed is dropped and a day left with one open
+  // slot chooses it, keeping the error that explained why. When none is left, focus returns to the day's heading.
+  const dayBookableIds = dayBookable.map((window) => window.id).join(" ");
+  useEffect(() => {
+    if (!selectedDate || !draft.windowId || dayBookable.some((window) => window.id === draft.windowId)) return;
+    const only = dayBookable.length === 1 ? dayBookable[0]!.id : "";
+    setDraft((current) => ({ ...current, ...(only ? slotTimes(only) : { windowId: "", arrival: "", departure: "" }) }));
+    if (!dayBookable.length) document.getElementById(ids("day"))?.focus();
+  }, [dayBookableIds]);
   function chooseArrival(arrival: string) {
     setDraft((current) => {
       const keep = chosen && departureChoices(chosen.local, arrival).includes(current.departure);
@@ -122,6 +144,7 @@ function GuestBookingPage() {
   }
   // Choosing a day opens its times below the calendar and moves focus there; a day with one open time chooses it.
   function selectDay(date: string) {
+    if (date === selectedDate) { setReveal((current) => current + 1); return; }
     const open = bookable.filter((window) => window.local.date === date);
     setSelectedDate(date); setFormError("");
     if (open.length === 1) chooseWindow(open[0]!.id);
@@ -129,7 +152,7 @@ function GuestBookingPage() {
       setDraft((current) => ({ ...current, windowId: "", arrival: "", departure: "" }));
       setErrors((current) => { const next = { ...current }; delete next.date; delete next.arrival; delete next.departure; return next; });
     }
-    focus(ids("day"));
+    setReveal((current) => current + 1);
   }
   function changeDay() { setMonth(selectedDate.slice(0, 7)); focus(guestDayId(calendarId, selectedDate)); }
 
@@ -153,9 +176,7 @@ function GuestBookingPage() {
       void load();
     } catch (error) {
       const failure = failureOf(error);
-      // With a single time slot there is no slot field to mark, so a problem with the slot shows at the top of the form.
-      const reported = failure.field === "date" && dayBookable.length <= 1 ? "" : failure.field;
-      const field = reported === "date" || (bookingFieldOrder as readonly string[]).includes(reported) ? reported : "";
+      const field = failure.field === "date" || (bookingFieldOrder as readonly string[]).includes(failure.field) ? failure.field : "";
       if (field && !failure.transient) { setErrors({ [field]: failure.message }); focus(ids(field)); }
       else setFormError(failure.transient ? `${failure.message} Sending again is safe: it never books twice.` : failure.field === "submissionKey" ? "Reload the page and try again." : failure.message);
       if (failure.field === "date" || failure.field === "arrival") void load();
@@ -198,29 +219,34 @@ function GuestBookingPage() {
           <h2 id={ids("day")} tabIndex={-1}>{formatShortDate(selectedDate)}</h2>
           <button className="ui-button" type="button" onClick={changeDay}>Change day</button>
         </div>
-        {dayWindows.map((window) => <PublicWindowCard key={window.id} window={window} timeZone={timeZone} />)}
-        {dayBookable.length === 0 ? <p>No open times are left on this day. Choose another highlighted day.</p> : <form className="ui-form visits-form" noValidate onSubmit={(event) => void submit(event)} onKeyDown={preventImplicitSubmission}>
+        {dayBookable.length === 0 ? <>
+          {(formError || errors.date) && <p className="ui-status settings-notice" data-tone="error" role="alert">{formError || errors.date}</p>}
+          {dayWindows.map((window) => <SlotCard key={window.id} window={window} timeZone={timeZone} />)}
+          <p>No open times are left on this day. Choose another highlighted day.</p>
+        </> : <form className="ui-form visits-form" noValidate onSubmit={(event) => void submit(event)} onKeyDown={preventImplicitSubmission}>
           {formError && <p ref={formErrorRef} tabIndex={-1} className="ui-status settings-notice" data-tone="error" role="alert">{formError}</p>}
+          <fieldset className="visits-fieldset visits-slots" disabled={busy} aria-describedby={errors.date ? `${ids("date")}-error` : undefined}>
+            <legend>Time slot</legend>
+            {dayWindows.map((window) => {
+              const open = dayBookable.some((item) => item.id === window.id);
+              return <SlotCard key={window.id} window={window} timeZone={timeZone} choice={open
+                ? { name: ids("slot"), id: window.id === dayBookable[0]!.id ? ids("date") : undefined, checked: draft.windowId === window.id, onChoose: () => chooseWindow(window.id) }
+                : undefined} />;
+            })}
+            {errors.date && <span id={`${ids("date")}-error`} className="field-help visits-field-error">{errors.date}</span>}
+          </fieldset>
           <fieldset className="visits-fieldset" disabled={busy}>
-            <legend>Your time</legend>
-            {dayBookable.length > 1 && <fieldset className="visits-fieldset visits-choice visits-slot-choice" aria-describedby={errors.date ? `${ids("date")}-error` : undefined}>
-              <legend>Time slot</legend>
-              {dayBookable.map((window, index) => <label key={window.id} className="checkbox-field">
-                <input id={index === 0 ? ids("date") : undefined} type="radio" name={ids("slot")} checked={draft.windowId === window.id} onChange={() => chooseWindow(window.id)} />
-                {formatTimeRange(window.local.startTime, window.local.endTime)}{window.title ? `, ${window.title}` : ""}
-              </label>)}
-              {errors.date && <span id={`${ids("date")}-error`} className="field-help visits-field-error">{errors.date}</span>}
-            </fieldset>}
+            <legend>When you will be there</legend>
             <div className="visits-time-grid">
               <Field id={ids("arrival")} label="Arrival" error={errors.arrival}>
                 <select {...fieldAria(ids("arrival"), errors.arrival)} className="ui-control ui-native-select" required disabled={!chosen} value={draft.arrival} onChange={(event) => chooseArrival(event.target.value)}>
-                  {!chosen && <option value="">Choose a time slot first</option>}
+                  {!chosen && <option value="">Choose a slot</option>}
                   {arrivals.map((time) => <option key={time} value={time}>{formatTime(time)}</option>)}
                 </select>
               </Field>
               <Field id={ids("departure")} label="Departure" error={errors.departure}>
                 <select {...fieldAria(ids("departure"), errors.departure)} className="ui-control ui-native-select" required disabled={!chosen} value={draft.departure} onChange={(event) => change("departure", event.target.value)}>
-                  {!chosen && <option value="">Choose a time slot first</option>}
+                  {!chosen && <option value="">Choose a slot</option>}
                   {departures.map((time) => <option key={time} value={time}>{formatTime(time)}</option>)}
                 </select>
               </Field>
@@ -271,20 +297,25 @@ function GuestBookingPage() {
   </main>;
 }
 
-/** A time slot on the chosen day: its hours and title, then the teams coming, or the reason it was canceled. */
-function PublicWindowCard({ window, timeZone }: { window: PublicWindow & { local: LocalSpan }; timeZone: string }) {
+type SlotChoice = { readonly name: string; readonly id?: string; readonly checked: boolean; readonly onChoose: () => void };
+
+/**
+ * A time slot on the chosen day: its hours and title, then the teams coming or the reason it was canceled. A slot that can
+ * be booked carries the radio that chooses it, and a tap anywhere on its card chooses it too; the radio is the keyboard
+ * and screen reader path.
+ */
+function SlotCard({ window, timeZone, choice }: { window: PublicWindow & { local: LocalSpan }; timeZone: string; choice?: SlotChoice }) {
   const range = formatTimeRange(window.local.startTime, window.local.endTime);
   const canceled = window.status === "canceled";
-  return <article className="visits-window" data-status={window.status} aria-labelledby={`visits-window-${window.id}`}>
+  const text = <span className="visits-slot-text"><strong>{range}</strong>{window.title && <span className="visits-window-title">{window.title}</span>}</span>;
+  return <div className="visits-window" data-status={window.status} data-choosable={choice ? "true" : undefined} data-selected={choice?.checked ? "true" : undefined} onClick={choice?.onChoose}>
     <div className="visits-window-heading">
-      <div>
-        <h3 id={`visits-window-${window.id}`}>{range}</h3>
-        {window.title && <p className="visits-window-title">{window.title}</p>}
-      </div>
+      {choice ? <label className="visits-slot-label"><input id={choice.id} type="radio" name={choice.name} checked={choice.checked} onChange={choice.onChoose} />{text}</label> : text}
       {canceled
         ? <span className="ui-status visits-badge" data-tone="warning">{window.cancelReason ? `Canceled - ${window.cancelReason}` : "Canceled"}</span>
         : <span className="visits-team-count">{teamCountText(window.teamCount)}</span>}
     </div>
+    {!choice && !canceled && <p className="field-help">This time has started, so it can no longer be booked.</p>}
     {!canceled && window.visits.length > 0 && <ul className="visits-team-list" aria-label={`Teams coming ${range}`}>
       {window.visits.map((visit, index) => {
         const arrival = localReading(visit.arrivalMs, timeZone).time;
@@ -295,5 +326,5 @@ function PublicWindowCard({ window, timeZone }: { window: PublicWindow & { local
         </li>;
       })}
     </ul>}
-  </article>;
+  </div>;
 }

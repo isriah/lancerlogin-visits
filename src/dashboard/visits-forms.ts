@@ -64,8 +64,8 @@ export const emptyBookingDraft: BookingDraft = {
   program: "", teamNumber: "", teamName: "", contactName: "", contactEmail: "", contactPhone: "", windowId: "", arrival: "", departure: "", headcount: "", note: "",
 };
 
-/** Request fields in form order, for focusing the first problem. The window select answers for `date`. */
-export const bookingFieldOrder = ["program", "teamNumber", "teamName", "contactName", "contactEmail", "contactPhone", "date", "arrival", "departure", "headcount", "note"] as const;
+/** Request fields in form order, for focusing the first problem. The guest page asks for the time first; its time slot radio answers for `date`. */
+export const bookingFieldOrder = ["date", "arrival", "departure", "program", "teamNumber", "teamName", "contactName", "contactEmail", "contactPhone", "headcount", "note"] as const;
 
 /** Every problem in the booking form, by request field, using the Worker's own rules. */
 export function validateBookingDraft(draft: BookingDraft, windowDate: string | undefined): FieldErrors {
