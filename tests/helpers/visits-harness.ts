@@ -6,7 +6,7 @@ import { createTestDatabase, type TestDatabase } from "./d1.ts";
 import { civil, newYork } from "./civil-time.ts";
 import { processVisitsNotifications } from "../../src/api/visits-delivery.ts";
 import { visitsAdminRoute, visitsPublicRoute, visitsSetupRoute } from "../../src/api/visits-routes.ts";
-import type { VisitsDeps, VisitsOutreachClient, VisitsRole } from "../../src/api/visits-runtime.ts";
+import type { VisitsCredentials, VisitsDeps, VisitsFetch, VisitsOutreachClient, VisitsRole } from "../../src/api/visits-runtime.ts";
 import { defaultSettingsSql } from "../../src/shared/visits-storage.ts";
 
 export const dashboardOrigin = "https://visits.example.org";
@@ -175,9 +175,16 @@ export function visitsHarness(start = Date.parse("2026-10-28T15:00:00.000Z")) {
   // Outreach is not installed until a test says so.
   const outreach = new FakeOutreach();
   outreach.ready = false;
+  // FIRST's team APIs and Core's credential encryption: unreachable and unavailable until a test replaces them.
+  const noKey = async (): Promise<never> => { throw new Error("Credential encryption is not configured"); };
+  const first: { fetch: VisitsFetch; credentials: VisitsCredentials } = {
+    fetch: async () => { throw new Error("FIRST is not reachable in tests"); },
+    credentials: { available: false, encrypt: noKey, decrypt: noKey },
+  };
   /** Guest requests and the job have no signed-in user; workspace and setup requests have the caller's role. */
   const depsFor = (grantOnly: boolean, role: VisitsRole | null): VisitsDeps => ({
     civil, timeZone: async () => newYork, now: () => clock.now, email, discord, outreach: outreach.access(grantOnly, role), dashboardOrigin,
+    credentials: first.credentials, fetch: (url, init) => first.fetch(url, init),
   });
   const deps = depsFor(true, null);
 
@@ -214,7 +221,7 @@ export function visitsHarness(start = Date.parse("2026-10-28T15:00:00.000Z")) {
   const count = (sql: string, ...values: unknown[]) => Number((db.rows<{ n: number }>(sql, ...values)[0] as { n: number }).n);
   /** One pass of the visits.notifications job. */
   const job = () => processVisitsNotifications(db as never, depsFor(true, null));
-  return { db, clock, email, discord, outreach, deps, depsFor, call, count, job };
+  return { db, clock, email, discord, outreach, first, deps, depsFor, call, count, job };
 }
 
 /** Monday and Wednesday 18:00 to 21:00 from November 2 to December 18, 2026 (America/New_York). */

@@ -1,6 +1,8 @@
 // Form state for the Guest Visits pages: drafts held as text, checked with the same src/shared rules the Worker applies,
 // and turned into contract requests that carry only what changed. Also reads the API's `{ error, field }` failures and
-// keeps one submission key per booking attempt. Plain functions, so `npm test` covers them without React.
+// keeps one submission key per booking attempt. Each form's rules also check one field at a time, for the live checks
+// (useLiveChecks in visits-live-checks.ts, whose state changes are here). Plain functions, so `npm test` covers them
+// without React.
 import {
   maximumContactNameLength, maximumTeamNameLength, parseEmail, parseHeadcount, parseNote, parsePhone, parseProgram, parseTeamNumber,
   type TeamIdentity, type VisitProgram,
@@ -29,18 +31,32 @@ export function readFailure(status: number | null, body: unknown): VisitsFailure
   return { message, field: typeof record.field === "string" ? record.field : "", status, transient };
 }
 
-const collect = (entries: readonly (readonly [string, { ok: true } | { ok: false; error: string }])[]): FieldErrors =>
-  Object.fromEntries(entries.filter(([, result]) => !result.ok).map(([field, result]) => [field, (result as { error: string }).error]));
+type Check = { readonly ok: true } | { readonly ok: false; readonly error: string };
+/** A form's rules by request field. Validating runs them all; a live check runs one. */
+type Rules<Args extends readonly unknown[]> = Readonly<Record<string, (...args: Args) => Check>>;
+const passed: Check = { ok: true };
+const failed = (error: string): Check => ({ ok: false, error });
 
-const requiredText = (value: string, label: string, maximum: number) => {
-  const text = singleLine(value);
-  if (!text) return { ok: false as const, error: `Enter the ${label}` };
-  return text.length > maximum ? { ok: false as const, error: `The ${label} is at most ${maximum} characters` } : { ok: true as const };
+const collect = (entries: readonly (readonly [string, Check])[]): FieldErrors =>
+  Object.fromEntries(entries.filter(([, result]) => !result.ok).map(([field, result]) => [field, (result as { error: string }).error]));
+const validateWith = <Args extends readonly unknown[]>(rules: Rules<Args>, ...args: Args): FieldErrors => collect(Object.entries(rules).map(([field, rule]) => [field, rule(...args)] as const));
+/** One field's problem, or undefined, also for a field the rules do not know. */
+const checkWith = <Args extends readonly unknown[]>(rules: Rules<Args>, field: string, ...args: Args): string | undefined => {
+  const result = Object.hasOwn(rules, field) ? rules[field](...args) : passed;
+  return result.ok ? undefined : result.error;
 };
 
-const timesInOrder = (arrival: string, departure: string) => {
-  if (!isLocalTime(departure)) return { ok: false as const, error: "Choose the departure time" };
-  return isLocalTime(arrival) && minutesOfDay(departure) <= minutesOfDay(arrival) ? { ok: false as const, error: "The departure must be after the arrival" } : { ok: true as const };
+const requiredText = (value: string, label: string, maximum: number): Check => {
+  const text = singleLine(value);
+  if (!text) return failed(`Enter the ${label}`);
+  return text.length > maximum ? failed(`The ${label} is at most ${maximum} characters`) : passed;
+};
+
+const arrivalTime = (arrival: string): Check => isLocalTime(arrival) ? passed : failed("Choose the arrival time");
+
+const timesInOrder = (arrival: string, departure: string): Check => {
+  if (!isLocalTime(departure)) return failed("Choose the departure time");
+  return isLocalTime(arrival) && minutesOfDay(departure) <= minutesOfDay(arrival) ? failed("The departure must be after the arrival") : passed;
 };
 
 // Guest booking.
@@ -64,26 +80,40 @@ export const emptyBookingDraft: BookingDraft = {
   program: "", teamNumber: "", teamName: "", contactName: "", contactEmail: "", contactPhone: "", windowId: "", arrival: "", departure: "", headcount: "", note: "",
 };
 
-/** Request fields in form order, for focusing the first problem. The window select answers for `date`. */
-export const bookingFieldOrder = ["program", "teamNumber", "teamName", "contactName", "contactEmail", "contactPhone", "date", "arrival", "departure", "headcount", "note"] as const;
+/** Request fields in form order, for focusing the first problem. The guest page asks for the time first; its time slot radio answers for `date`. */
+export const bookingFieldOrder = ["date", "arrival", "departure", "program", "teamNumber", "teamName", "contactName", "contactEmail", "contactPhone", "headcount", "note"] as const;
+
+/** The booking rules: the Worker's own, with a short message for a program left unchosen. */
+const bookingRules: Rules<[BookingDraft, string | undefined]> = {
+  program: (draft) => draft.program ? parseProgram(draft.program) : failed("Choose the program"),
+  // Until a program is chosen the number is only required: Other allows letters, the rest digits only.
+  teamNumber: (draft) => {
+    const program = parseProgram(draft.program);
+    return program.ok ? parseTeamNumber(draft.teamNumber, program.value) : draft.teamNumber.trim() ? passed : failed("Enter the team number");
+  },
+  teamName: (draft) => requiredText(draft.teamName, "team name", maximumTeamNameLength),
+  contactName: (draft) => requiredText(draft.contactName, "contact name", maximumContactNameLength),
+  contactEmail: (draft) => parseEmail(draft.contactEmail),
+  contactPhone: (draft) => parsePhone(draft.contactPhone),
+  date: (_draft, windowDate) => windowDate ? passed : failed("Choose when to visit"),
+  arrival: (draft) => arrivalTime(draft.arrival),
+  departure: (draft) => timesInOrder(draft.arrival, draft.departure),
+  headcount: (draft) => parseHeadcount(draft.headcount),
+  note: (draft) => parseNote(draft.note),
+};
 
 /** Every problem in the booking form, by request field, using the Worker's own rules. */
 export function validateBookingDraft(draft: BookingDraft, windowDate: string | undefined): FieldErrors {
-  const program = parseProgram(draft.program);
-  return collect([
-    ["program", program],
-    ["teamNumber", program.ok ? parseTeamNumber(draft.teamNumber, program.value) : draft.teamNumber.trim() ? { ok: true } : { ok: false, error: "Enter the team number" }],
-    ["teamName", requiredText(draft.teamName, "team name", maximumTeamNameLength)],
-    ["contactName", requiredText(draft.contactName, "contact name", maximumContactNameLength)],
-    ["contactEmail", parseEmail(draft.contactEmail)],
-    ["contactPhone", parsePhone(draft.contactPhone)],
-    ["date", windowDate ? { ok: true } : { ok: false, error: "Choose when to visit" }],
-    ["arrival", isLocalTime(draft.arrival) ? { ok: true } : { ok: false, error: "Choose the arrival time" }],
-    ["departure", timesInOrder(draft.arrival, draft.departure)],
-    ["headcount", parseHeadcount(draft.headcount)],
-    ["note", parseNote(draft.note)],
-  ]);
+  return validateWith(bookingRules, draft, windowDate);
 }
+
+/** One booking field's problem by the same rules, or undefined: `checkBookingField("contactEmail", draft)`. */
+export function checkBookingField(field: string, draft: BookingDraft, windowDate?: string): string | undefined {
+  return checkWith(bookingRules, field, draft, windowDate);
+}
+
+/** The booking form's `date` problem belongs to its time slot choice, `windowId`. For `useLiveChecks`. */
+export const bookingFieldSources: FieldSources = { date: "windowId" };
 
 /** The booking request without its submission key. Optional fields are left out when empty. */
 export function bookingRequest(draft: BookingDraft, windowDate: string): Omit<PublicBookingRequest, "submissionKey"> {
@@ -158,17 +188,24 @@ export function visitDraft(booking: Pick<ManageView["booking"], "date" | "arriva
 
 export const visitFieldOrder = ["date", "arrival", "departure", "headcount", "contactName", "contactPhone", "note"] as const;
 
+const visitRules: Rules<[VisitDraft]> = {
+  date: (draft) => /^\d{4}-\d{2}-\d{2}$/.test(draft.date) ? passed : failed("Choose the visit date"),
+  arrival: (draft) => arrivalTime(draft.arrival),
+  departure: (draft) => timesInOrder(draft.arrival, draft.departure),
+  headcount: (draft) => parseHeadcount(draft.headcount),
+  contactName: (draft) => requiredText(draft.contactName, "contact name", maximumContactNameLength),
+  contactPhone: (draft) => parsePhone(draft.contactPhone),
+  note: (draft) => parseNote(draft.note),
+};
+
 /** Every problem in a visit change, by request field. */
 export function validateVisitDraft(draft: VisitDraft): FieldErrors {
-  return collect([
-    ["date", /^\d{4}-\d{2}-\d{2}$/.test(draft.date) ? { ok: true } : { ok: false, error: "Choose the visit date" }],
-    ["arrival", isLocalTime(draft.arrival) ? { ok: true } : { ok: false, error: "Choose the arrival time" }],
-    ["departure", timesInOrder(draft.arrival, draft.departure)],
-    ["headcount", parseHeadcount(draft.headcount)],
-    ["contactName", requiredText(draft.contactName, "contact name", maximumContactNameLength)],
-    ["contactPhone", parsePhone(draft.contactPhone)],
-    ["note", parseNote(draft.note)],
-  ]);
+  return validateWith(visitRules, draft);
+}
+
+/** One visit field's problem by the same rules, or undefined. */
+export function checkVisitField(field: string, draft: VisitDraft): string | undefined {
+  return checkWith(visitRules, field, draft);
 }
 
 type Mutable<Value> = { -readonly [Key in keyof Value]: Value[Key] };
@@ -195,8 +232,18 @@ export function staffVisitDraft(booking: StaffBooking): StaffVisitDraft {
   return { ...visitDraft(booking), contactEmail: booking.contactEmail, teamId: booking.team.id };
 }
 
+const staffVisitRules: Rules<[StaffVisitDraft]> = {
+  ...visitRules,
+  contactEmail: (draft) => parseEmail(draft.contactEmail),
+  teamId: (draft) => draft.teamId ? passed : failed("Choose the guest team"),
+};
+
 export function validateStaffVisitDraft(draft: StaffVisitDraft): FieldErrors {
-  return { ...validateVisitDraft(draft), ...collect([["contactEmail", parseEmail(draft.contactEmail)], ["teamId", draft.teamId ? { ok: true } : { ok: false, error: "Choose the guest team" }]]) };
+  return validateWith(staffVisitRules, draft);
+}
+
+export function checkStaffVisitField(field: string, draft: StaffVisitDraft): string | undefined {
+  return checkWith(staffVisitRules, field, draft);
 }
 
 /** The staff edit for a draft, or null when nothing changed. The email address is sent only when it changed, since a change revokes earlier links. */
@@ -206,6 +253,57 @@ export function staffVisitEdit(booking: StaffBooking, draft: StaffVisitDraft): S
   if (draft.contactEmail.trim() !== booking.contactEmail) edit.contactEmail = draft.contactEmail.trim();
   if (draft.teamId !== booking.team.id) edit.teamId = draft.teamId;
   return Object.keys(edit).length > 1 ? edit : null;
+}
+
+// Live checks: a field is checked when the person leaves it, and a field showing a problem is checked again as its value
+// changes. useLiveChecks (visits-live-checks.ts) keeps this state; these are its changes.
+
+/** A field's problem in a draft, or undefined: `checkVisitField`, or `checkBookingField` with the chosen window's date. */
+export type FieldCheck<Draft> = (field: string, draft: Draft) => string | undefined;
+
+/** Fields whose value is held under another draft key, such as the booking form's `date` under `windowId`. */
+export type FieldSources = Readonly<Record<string, string>>;
+
+/** The draft last seen, the errors shown and the fields checked so far (left once, or shown an error). */
+export type LiveCheckState<Draft> = { readonly draft: Draft; readonly errors: FieldErrors; readonly checked: ReadonlySet<string> };
+
+export function liveCheckState<Draft>(draft: Draft): LiveCheckState<Draft> {
+  return { draft, errors: {}, checked: new Set() };
+}
+
+const withChecked = (checked: ReadonlySet<string>, fields: readonly string[]): ReadonlySet<string> =>
+  fields.every((field) => checked.has(field)) ? checked : new Set([...checked, ...fields]);
+
+/** Show these errors in place of the others, as a submit or a refused request does. Their fields count as checked. */
+export function liveShow<Draft>(state: LiveCheckState<Draft>, errors: FieldErrors): LiveCheckState<Draft> {
+  return { ...state, errors, checked: withChecked(state.checked, Object.keys(errors)) };
+}
+
+/** A field was left: show its problem. A field that passes keeps an error it shows, so a Worker refusal stays until the value changes. */
+export function liveBlur<Draft>(state: LiveCheckState<Draft>, field: string, check: FieldCheck<Draft>): LiveCheckState<Draft> {
+  const error = check(field, state.draft);
+  const checked = withChecked(state.checked, [field]);
+  if (error && error !== state.errors[field]) return { ...state, checked, errors: { ...state.errors, [field]: error } };
+  return checked === state.checked ? state : { ...state, checked };
+}
+
+/**
+ * The draft changed. A field whose own value changed is checked again only while it shows an error, so typing never adds
+ * one and a corrected value loses it at once. A checked field whose value stayed is checked again when its result changed
+ * with another field, as the departure does when the arrival moves, or the team number when the program does.
+ */
+export function liveChange<Draft extends object>(state: LiveCheckState<Draft>, next: Draft, check: FieldCheck<Draft>, sources: FieldSources = {}): LiveCheckState<Draft> {
+  const valueOf = (draft: Draft, field: string) => (draft as Record<string, unknown>)[sources[field] ?? field];
+  let errors: Record<string, string> | undefined;
+  for (const field of state.checked) {
+    const typed = !Object.is(valueOf(state.draft, field), valueOf(next, field));
+    if (typed ? !state.errors[field] : check(field, state.draft) === check(field, next)) continue;
+    const error = check(field, next);
+    if (error === state.errors[field]) continue;
+    errors ??= { ...state.errors };
+    if (error) errors[field] = error; else delete errors[field];
+  }
+  return { ...state, draft: next, errors: errors ?? state.errors };
 }
 
 // Availability.

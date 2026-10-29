@@ -1,5 +1,6 @@
 // Guest emails and Discord messages. Guest-entered text is HTML-escaped in email HTML and Discord-escaped in Discord
-// messages. Emails carry the manage link; Discord messages and the weekly summary never carry contacts or notes.
+// messages. Emails carry the manage link; Discord messages and the weekly summary never carry contacts or the guest's
+// team needs (`note`).
 import { teamLabel, type FieldChange, type TeamIdentity } from "./visits-booking.ts";
 import { formatDate, formatShortDate, formatTime, localMoment, singleLine, type CivilTime } from "./visits-time.ts";
 
@@ -72,7 +73,7 @@ const timeSpan = (details: Pick<VisitMessageDetails, "arrival" | "departure">) =
 /** Plain-language names of what changed, for update emails and Discord: "date and time", "headcount" and so on. */
 export function changeLabels(changes: readonly FieldChange[]): string[] {
   const labels: Record<FieldChange["field"], string> = {
-    windowId: "date and time", arrivalMs: "date and time", departureMs: "date and time", headcount: "headcount", note: "note",
+    windowId: "date and time", arrivalMs: "date and time", departureMs: "date and time", headcount: "headcount", note: "team needs",
     contactName: "contact name", contactPhone: "phone", contactEmail: "email address", teamId: "team", status: "status",
   };
   return [...new Set(changes.map((change) => labels[change.field]))];
@@ -91,7 +92,7 @@ function detailRows(details: VisitMessageDetails): [string, string][] {
   ];
   if (details.windowTitle) rows.splice(2, 0, ["Time slot", details.windowTitle]);
   if (details.contactPhone) rows.push(["Phone", details.contactPhone]);
-  if (details.note) rows.push(["Note", details.note]);
+  if (details.note) rows.push(["Team needs", details.note]);
   return rows;
 }
 

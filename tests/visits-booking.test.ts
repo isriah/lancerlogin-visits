@@ -64,6 +64,8 @@ test("a booking without an email address or with bad fields is refused with the 
   ];
   for (const [change, field] of cases) assert.equal(failure(parseBookingInput({ ...body, ...change })).field, field, JSON.stringify(change));
   assert.equal(failure(parseBookingInput("teamNumber=1234")).field, "");
+  assert.equal(failure(parseBookingInput({ ...body, note: "x".repeat(1001) })).error, "Team needs are at most 1000 characters");
+  assert.equal(failure(parseBookingInput({ ...body, note: 12 })).error, "Enter team needs as text");
 });
 
 test("team numbers are normalized per program", () => {
@@ -76,9 +78,18 @@ test("team numbers are normalized per program", () => {
 
 test("contact fields accept common forms", () => {
   for (const email of ["pat@example.org", "first.last+visits@mail.example.co.uk", "o'neil@example.com"]) assert.ok(parseEmail(email).ok, email);
-  for (const phone of ["555-010-0199", "+1 (555) 010-0199", "555.010.0199 ext. 12", "555 010 0199 x9"]) assert.ok(parsePhone(phone).ok, phone);
+  for (const phone of ["555-010-0199", "+1 (555) 010-0199", "555.010.0199", "+44 20 7946 0958"]) assert.ok(parsePhone(phone).ok, phone);
   assert.deepEqual(parsePhone("   "), { ok: true, value: "" });
   assert.deepEqual(parseHeadcount("8"), { ok: true, value: 8 });
+});
+
+test("phone numbers take digits and phone symbols only, without letters or an extension", () => {
+  const error = (value: string) => failure(parsePhone(value)).error;
+  for (const phone of ["555.010.0199 ext. 12", "555 010 0199 x9", "555-010-0199x123", "555-CALL-NOW", "call me"]) assert.equal(error(phone), "Enter the phone number without letters or an extension", phone);
+  for (const phone of ["555-010-0199 #12", "555/010/0199", "555 010+0199", "555_010_0199"]) assert.equal(error(phone), "Use only digits, spaces, dots, hyphens, parentheses and a leading +", phone);
+  for (const phone of ["12345", "+1 234 567 890 123 456 789 012", Array(21).fill("5").join(" ")]) assert.equal(error(phone), "Enter a phone number with its area code, or leave it empty", phone);
+  assert.equal(failure(parsePhone(5550100199)).error, "Enter the phone number as text");
+  assert.equal(failure(parsePhone("call", "phone")).field, "phone");
 });
 
 test("visit times resolve in the installation time zone, including daylight saving days", () => {

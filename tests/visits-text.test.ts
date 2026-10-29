@@ -44,9 +44,13 @@ test("the confirmation email states the visit plainly and carries the manage lin
   const email = confirmationEmail(details({ note: "Bringing our robot" }), manageUrl);
   assert.equal(email.subject, "Your visit to FRC 321 on Monday, November 2");
   assert.match(email.text, /^Hello Pat Coach,\n\nYour visit to FRC 321 is booked\. Here are the details\.\n/);
-  for (const line of ["Team: FRC 1234 Gear Heads", "Date: Monday, November 2, 2026", "Time slot: Open shop", "Arrival: 6:30 PM", "Departure: 8:00 PM", "People: 12", "Phone: 555-010-0199", "Note: Bringing our robot", manageUrl]) {
+  for (const line of ["Team: FRC 1234 Gear Heads", "Date: Monday, November 2, 2026", "Time slot: Open shop", "Arrival: 6:30 PM", "Departure: 8:00 PM", "People: 12", "Phone: 555-010-0199", "Team needs: Bringing our robot", manageUrl]) {
     assert.ok(email.text.includes(line), line);
   }
+  assert.match(email.html, /<th [^>]*>Team needs<\/th><td [^>]*>Bringing our robot<\/td>/);
+  assert.doesNotMatch(email.text + email.html, /\bNotes?\b/);
+  const withoutNeeds = confirmationEmail(details(), manageUrl);
+  assert.doesNotMatch(withoutNeeds.text + withoutNeeds.html, /Team needs/, "an empty field has no row");
   assert.ok(email.html.includes(`<a href="${manageUrl}">Change or cancel this visit</a>`));
   assert.match(email.text, /works until your visit ends/);
   assert.doesNotMatch(email.text + email.html + email.subject, /[\u2013\u2014]/);
@@ -65,6 +69,7 @@ test("guest text is escaped in email HTML and kept out of the subject", () => {
 test("update and cancellation emails say what happened, with a fresh link", () => {
   const changes = [{ field: "arrivalMs" as const, from: 1, to: 2 }, { field: "departureMs" as const, from: 1, to: 2 }, { field: "headcount" as const, from: 12, to: 14 }];
   assert.deepEqual(changeLabels(changes), ["date and time", "headcount"]);
+  assert.deepEqual(changeLabels([{ field: "note", from: "", to: "CAD review" }]), ["team needs"]);
   const update = updateEmail(details({ headcount: 14 }), manageUrl, changes);
   assert.equal(update.subject, "Updated: your visit to FRC 321 on Monday, November 2");
   assert.ok(update.text.includes("Your visit to FRC 321 was changed (date and time, headcount). Here are the updated details."));
@@ -77,8 +82,11 @@ test("update and cancellation emails say what happened, with a fresh link", () =
   assert.doesNotMatch(noLink.text + noLink.html, /visit\/manage|href=/);
 });
 
-test("Discord lines name the team, time and headcount, never contacts or notes", () => {
+test("Discord lines name the team, time and headcount, never contacts or team needs", () => {
   const visit = details({ note: "Private note", contactName: "Pat Coach" });
+  const needsChanged = discordChangedMessage(visit, [{ field: "note", from: "Old need", to: "Private note" }]);
+  assert.equal(needsChanged, "Guest visit changed (team needs): FRC 1234 Gear Heads - Monday, November 2, 6:30 PM to 8:00 PM - 12 people");
+  assert.doesNotMatch(needsChanged, /Old need|Private/, "a change names the field, never its text");
   assert.equal(discordVisitLine(visit), "FRC 1234 Gear Heads - Monday, November 2, 6:30 PM to 8:00 PM - 12 people");
   assert.equal(discordBookedMessage(visit), "New guest visit: FRC 1234 Gear Heads - Monday, November 2, 6:30 PM to 8:00 PM - 12 people");
   assert.equal(discordChangedMessage(visit, [{ field: "headcount", from: 10, to: 12 }]), "Guest visit changed (headcount): FRC 1234 Gear Heads - Monday, November 2, 6:30 PM to 8:00 PM - 12 people");

@@ -1,7 +1,8 @@
 // Local dates and times for the Guest Visits pages. Staff data arrives as local dates (YYYY-MM-DD) and times (HH:MM) in
 // the installation time zone; the guest page and history arrive as instants, which these helpers read in that time zone
 // with the browser's Intl. Everything here is plain functions over src/shared, so `npm test` covers it without React.
-import { addDays, formatShortDate, formatTime, isLocalDate, isLocalTime, minutesOfDay, weekdayNames, weekdayOf } from "../shared/visits-time.ts";
+import type { PublicVisit } from "../shared/visits-booking.ts";
+import { addDays, daysBetween, formatShortDate, formatTime, isLocalDate, isLocalTime, minutesOfDay, weekdayNames, weekdayOf } from "../shared/visits-time.ts";
 
 /** A local reading of an instant: calendar date and HH:MM time. */
 export type LocalReading = { readonly date: string; readonly time: string };
@@ -65,12 +66,18 @@ export function formatInstant(epochMs: number, timeZone: string): string {
   return `${formatShortDate(reading.date)}, ${formatTime(reading.time)}`;
 }
 
-const shortMonths = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
+export const shortMonths = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
 
 /** "Nov 2, 2026". */
 export function formatCompactDate(date: string): string {
   const [year, month, day] = date.split("-").map(Number);
   return `${shortMonths[month! - 1]} ${day}, ${year}`;
+}
+
+/** "Oct 18 to Nov 21, 2026", with both years when they differ: "Dec 27, 2026 to Jan 30, 2027". */
+export function formatDateRange(from: string, to: string): string {
+  const start = formatCompactDate(from);
+  return `${from.slice(0, 4) === to.slice(0, 4) ? start.slice(0, -6) : start} to ${formatCompactDate(to)}`;
 }
 
 /** "Mondays and Wednesdays", "Mondays, Wednesdays and Fridays". Weekdays are 0 (Sunday) to 6. */
@@ -110,6 +117,19 @@ export function monthGridRange(today: string, offset: number): { readonly from: 
   const nextFirst = `${String(Math.floor(nextIndex / 12)).padStart(4, "0")}-${String((nextIndex % 12) + 1).padStart(2, "0")}-01`;
   const last = addDays(nextFirst, -1);
   return { from: addDays(first, -weekdayOf(first)), to: addDays(last, 6 - weekdayOf(last)), month: first.slice(0, 7) };
+}
+
+/** Weeks the guest calendar shows at once: last week, this week and the three after it, like Core's rolling calendars. */
+export const guestViewWeeks = 5;
+
+/**
+ * The dates of guest calendar view `view`, Sunday first. View 0 starts on the Sunday of last week; each view after it
+ * starts five weeks later, the step the arrows on Core's rolling calendars took.
+ */
+export function guestWeekDates(today: string, view: number): string[] {
+  if (!isLocalDate(today)) throw new RangeError(`Not a local date: ${today}`);
+  const first = addDays(today, view * 7 * guestViewWeeks - weekdayOf(today) - 7);
+  return Array.from({ length: 7 * guestViewWeeks }, (_, index) => addDays(first, index));
 }
 
 const asTime = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
@@ -160,6 +180,98 @@ export function peopleText(count: number): string {
 /** "No teams yet", "1 team coming", "3 teams coming". */
 export function teamCountText(count: number): string {
   return count === 0 ? "No teams yet" : `${count} ${count === 1 ? "team" : "teams"} coming`;
+}
+
+/**
+ * A day on the guest calendar. `open` days have a window a guest can still book; `canceled` days have only canceled
+ * windows, which guests may open to read the reason; `closed` days have windows that can no longer be booked, such as
+ * today's after they started. The times and titles are those of the windows the state describes; the team labels are
+ * the distinct teams coming that day, in window and arrival order.
+ */
+export type GuestDay = {
+  readonly date: string;
+  readonly state: "open" | "canceled" | "closed";
+  readonly openWindows: number;
+  readonly teams: number;
+  readonly startTime: string;
+  readonly endTime: string;
+  readonly titles: readonly string[];
+  readonly teamLabels: readonly string[];
+};
+
+/** A window as the guest calendar reads it: the guest page's windows with their local span. */
+export type GuestCalendarWindow = {
+  readonly id: string; readonly title: string; readonly status: "open" | "canceled"; readonly teamCount: number;
+  readonly visits: readonly Pick<PublicVisit, "program" | "teamNumber" | "teamName">[]; readonly local: LocalSpan;
+};
+
+/** "321 RoboLancers": a team as a guest calendar cell names it. */
+export function guestTeamLabel(visit: Pick<PublicVisit, "teamNumber" | "teamName">): string {
+  return `${visit.teamNumber} ${visit.teamName}`;
+}
+
+/** Guest calendar days by local date, from the guest page's windows and the IDs of the ones that can be booked. */
+export function guestDays(windows: readonly GuestCalendarWindow[], bookable: ReadonlySet<string>): Map<string, GuestDay> {
+  const days = new Map<string, GuestDay>();
+  for (const { date, items } of groupByDate(windows, (window) => window.local.date)) {
+    const open = items.filter((window) => bookable.has(window.id));
+    const state = open.length ? "open" : items.every((window) => window.status === "canceled") ? "canceled" : "closed";
+    const shown = open.length ? open : items;
+    // Keyed by team, so a team coming to two windows is listed once, where it first comes.
+    const coming = new Map(items.filter((window) => window.status === "open").flatMap((window) => window.visits)
+      .map((visit) => [`${visit.program} ${visit.teamNumber}`, guestTeamLabel(visit)] as const));
+    days.set(date, {
+      date, state, openWindows: open.length,
+      teams: items.reduce((total, window) => total + (window.status === "open" ? window.teamCount : 0), 0),
+      startTime: shown.map((window) => window.local.startTime).sort()[0]!,
+      endTime: shown.map((window) => window.local.endTime).sort().at(-1)!,
+      titles: [...new Set(shown.map((window) => window.title.trim()).filter(Boolean))],
+      teamLabels: [...coming.values()],
+    });
+  }
+  return days;
+}
+
+/** What a guest calendar day holds, for its accessible name: "2 open times, 1 team coming", "Canceled", "No open times". */
+export function guestDayText(day: GuestDay | undefined): string {
+  if (!day) return "No open times";
+  if (day.state === "canceled") return "Canceled";
+  if (day.state === "closed") return "No open times left";
+  const times = `${day.openWindows} open ${day.openWindows === 1 ? "time" : "times"}`;
+  return day.teams ? `${times}, ${teamCountText(day.teams)}` : times;
+}
+
+/** A line of a guest calendar cell. */
+export type GuestCellLine = { readonly kind: "time" | "title" | "team" | "more" | "canceled"; readonly text: string };
+
+/**
+ * What a guest calendar cell shows in `room` lines. An open day shows its hours ("2 times" for several slots), its slot
+ * titles, then the teams coming; a line is kept for the teams, and teams that do not fit end in "+N more" ("3 teams"
+ * when none fit). A canceled day shows "Canceled", other days nothing. The button's accessible name says it all anyway.
+ */
+export function guestCellLines(day: GuestDay | undefined, room: number): GuestCellLine[] {
+  if (!day || day.state === "closed" || room < 1) return [];
+  if (day.state === "canceled") return [{ kind: "canceled", text: "Canceled" }];
+  const teams = day.teamLabels;
+  const titles = day.titles.slice(0, Math.max(0, room - 1 - (teams.length ? 1 : 0)));
+  const left = room - 1 - titles.length;
+  const shown = teams.length > left ? teams.slice(0, Math.max(0, left - 1)) : teams;
+  const hidden = teams.length - shown.length;
+  return [
+    { kind: "time", text: day.openWindows > 1 ? `${day.openWindows} times` : `${compactTime(day.startTime)} to ${compactTime(day.endTime)}` },
+    ...titles.map((text) => ({ kind: "title", text }) as const),
+    ...shown.map((text) => ({ kind: "team", text }) as const),
+    ...(hidden && left > 0 ? [{ kind: "more", text: shown.length ? `+${hidden} more` : `${teams.length} teams` } as const] : []),
+  ];
+}
+
+/**
+ * The last view a guest may move to: the one holding the horizon's last day or the last posted window, whichever is
+ * later. View 0, with last week and this week, is the first, so guests never page back before last week.
+ */
+export function guestLastView(today: string, horizonDays: number, days: ReadonlyMap<string, GuestDay>): number {
+  const last = [addDays(today, Math.max(0, horizonDays - 1)), ...days.keys()].sort().at(-1)!;
+  return Math.max(0, Math.floor(daysBetween(guestWeekDates(today, 0)[0]!, last) / (7 * guestViewWeeks)));
 }
 
 /** "1 visit", "3 visits". */

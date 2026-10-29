@@ -207,7 +207,8 @@ test("a guest changes and cancels a visit with the link; stale and closed edits 
   // The update email has the new details and a fresh link; both links work.
   assert.equal(harness.email.sent.length, 2);
   assert.match(harness.email.sent[1]!.subject, /^Updated: your visit/);
-  assert.match(harness.email.sent[1]!.text!, /changed \(phone, headcount, note\)/);
+  assert.match(harness.email.sent[1]!.text!, /changed \(phone, headcount, team needs\)/);
+  assert.match(harness.email.sent[1]!.text!, /^Team needs: Bringing a robot$/m);
   const fresh = FakeEmail.token(harness.email.sent[1]!);
   assert.notEqual(fresh, token);
   assert.equal((await manage(harness, "manage", { token })).status, 200);

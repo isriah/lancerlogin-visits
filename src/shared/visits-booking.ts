@@ -124,16 +124,16 @@ export function parseEmail(value: unknown, field = "contactEmail"): Result<strin
   return ok(email);
 }
 
-/** Validate an optional phone number: digits with spaces, +, parentheses, dots or hyphens, and an optional extension. */
+/** Validate an optional phone number: digits with spaces, parentheses, dots, hyphens and a leading +. No letters, so no extension. */
 export function parsePhone(value: unknown, field = "contactPhone"): Result<string> {
   if (value === undefined || value === null) return ok("");
   if (typeof value !== "string") return problem(field, "Enter the phone number as text");
   const phone = singleLine(value);
   if (!phone) return ok("");
+  if (/\p{L}/u.test(phone)) return problem(field, "Enter the phone number without letters or an extension");
+  if (!/^\+?[0-9 ().-]+$/.test(phone)) return problem(field, "Use only digits, spaces, dots, hyphens, parentheses and a leading +");
   const digits = phone.replace(/\D/g, "").length;
-  if (phone.length > maximumPhoneLength || !/^\+?[0-9 ().-]+(?:\s*(?:x|ext\.?)\s*\d{1,6})?$/i.test(phone) || digits < 7 || digits > 21) {
-    return problem(field, "Enter a phone number with its area code, or leave it empty");
-  }
+  if (phone.length > maximumPhoneLength || digits < 7 || digits > 21) return problem(field, "Enter a phone number with its area code, or leave it empty");
   return ok(phone);
 }
 
@@ -148,9 +148,9 @@ export function parseHeadcount(value: unknown, field = "headcount"): Result<numb
 /** Validate an optional note to staff. Line breaks are kept. */
 export function parseNote(value: unknown, field = "note"): Result<string> {
   if (value === undefined || value === null) return ok("");
-  if (typeof value !== "string") return problem(field, "Enter the note as text");
+  if (typeof value !== "string") return problem(field, "Enter team needs as text");
   const note = multiLine(value);
-  if (note.length > maximumNoteLength) return problem(field, `Notes are at most ${maximumNoteLength} characters`);
+  if (note.length > maximumNoteLength) return problem(field, `Team needs are at most ${maximumNoteLength} characters`);
   return ok(note);
 }
 

@@ -14,6 +14,11 @@ export function teamText(team: TeamIdentity): string {
   return `${programShortLabels[team.program]} ${team.number} ${team.name}`;
 }
 
+/** What people read for the guest's optional free-text field (`note` in the data, API and database). */
+export const teamNeedsLabel = "Team needs";
+/** Help under the field wherever a guest types it. */
+export const teamNeedsHelp = "For example: programming help, CAD review, machine shop access or practice field time.";
+
 /** Program choices for a select, in the contract's order. */
 export const programChoices: readonly { readonly value: VisitProgram; readonly label: string }[] = visitPrograms.map((value) => ({ value, label: programLabels[value] }));
 
@@ -138,7 +143,7 @@ export function historyActorText(actor: BookingHistoryEntry["actor"], action = "
 
 const fieldText: Readonly<Record<FieldChange["field"], string>> = {
   windowId: "Window", teamId: "Team", contactName: "Contact name", contactEmail: "Email", contactPhone: "Phone", arrivalMs: "Arrival",
-  departureMs: "Departure", headcount: "People", note: "Note", status: "Status",
+  departureMs: "Departure", headcount: "People", note: teamNeedsLabel, status: "Status",
 };
 
 const valueText = (value: string | number) => {

@@ -93,3 +93,20 @@ test("Outreach is reached through services.modules with the declared interface; 
   // Without services.modules (an older Core), Outreach is simply unavailable.
   assert.deepEqual((await (await api.routes!["/admin/visits"]!(context(db, "GET", "/admin/visits/status") as never))!.json() as { outreach: unknown }).outreach, { available: false, granted: false });
 });
+
+test("team search reaches FIRST through the Worker's fetch, with the token Core's credential service decrypts", async (t) => {
+  const db = database();
+  await db.batch(api.freshEnable!(db as never, { installationId: "primary", now: "2026-10-28T15:00:00.000Z" }) as never);
+  db.exec(`INSERT INTO visits_first_credentials VALUES('primary','FRC','lancers','{"token":"frc-token-0001"}','synthetic-iv','2026-10-28T15:00:00.000Z')`);
+  const asked: string[] = [];
+  t.mock.method(globalThis, "fetch", async (url: string, init: RequestInit) => {
+    asked.push(`${url} ${new Headers(init.headers).get("authorization")}`);
+    return Response.json(url.endsWith("/v3.0/") ? { currentSeason: 2026 } : { teams: [{ teamNumber: 321, nameShort: "Lancers", city: "Lansdale", stateProv: "Pennsylvania", country: "USA" }] });
+  });
+  const search = context(db, "GET", "/public/visits/team-search?number=321");
+  Object.assign(search.services, { credentials: { available: true, encrypt: async () => { throw new Error("Not used"); }, decrypt: async (ciphertext: string) => JSON.parse(ciphertext) } });
+  const response = await api.routes!["/public/visits"]!(search as never);
+  assert.deepEqual(await response!.json(), { matches: [{ number: "321", name: "Lancers", program: "FRC", location: "Lansdale, Pennsylvania", source: "first" }], complete: false });
+  const authorization = `Basic ${Buffer.from("lancers:frc-token-0001").toString("base64")}`;
+  assert.deepEqual(asked, [`https://frc-api.firstinspires.org/v3.0/ ${authorization}`, `https://frc-api.firstinspires.org/v3.0/2026/teams?teamNumber=321 ${authorization}`]);
+});

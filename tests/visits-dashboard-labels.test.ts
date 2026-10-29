@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { at, newYork } from "./helpers/civil-time.ts";
 import {
   attentionNotes, bookingBadges, canMarkHandled, canRecordInOutreach, describeChange, emailStateBadges, historyActionText, historyActorText, historyNewestFirst,
-  mergeTargets, outreachBadge, outreachRecordSummary, outreachResultText, programChoices, sortBookings, sortTeams, teamText,
+  mergeTargets, outreachBadge, outreachRecordSummary, outreachResultText, programChoices, sortBookings, sortTeams, teamNeedsHelp, teamNeedsLabel, teamText,
 } from "../src/dashboard/visits-labels.ts";
 import type { BookingHistoryEntry, StaffBooking, StaffTeam } from "../src/shared/visits-api.ts";
 
@@ -16,6 +16,11 @@ test("teams and programs read the way guests write them", () => {
   assert.equal(teamText({ number: "12345", name: "Bricks", program: "Challenge" }), "FLL Challenge 12345 Bricks");
   assert.equal(teamText({ number: "99X", name: "Scouts", program: "Other" }), "Team 99X Scouts");
   assert.deepEqual(programChoices.map((choice) => choice.label), ["FRC", "FTC", "FIRST LEGO League Challenge", "FIRST LEGO League Explore", "Other"]);
+});
+
+test("the guest's free-text field reads as Team needs, with examples where a guest types it", () => {
+  assert.equal(teamNeedsLabel, "Team needs");
+  assert.equal(teamNeedsHelp, "For example: programming help, CAD review, machine shop access or practice field time.");
 });
 
 test("visit badges show removal or cancellation, attention, email and the visit's Outreach state", () => {
@@ -73,6 +78,7 @@ test("history reads in words, newest first, with every older entry restorable", 
   assert.equal(describeChange({ field: "windowId", from: "w1", to: "w2" }, context), "Moved to another window");
   assert.equal(describeChange({ field: "status", from: "booked", to: "canceled" }, context), "Status: booked to canceled");
   assert.equal(describeChange({ field: "contactPhone", from: "", to: "555-123-4567" }, context), "Phone: (empty) to 555-123-4567");
+  assert.equal(describeChange({ field: "note", from: "", to: "CAD review" }, context), "Team needs: (empty) to CAD review");
   const entry = (id: string, atMs: number): BookingHistoryEntry => ({ id, atMs, actor: { kind: "guest" }, action: "updated", changes: [] });
   assert.deepEqual(historyNewestFirst([entry("a", 1), entry("c", 3), entry("b", 2)]).map((item) => [item.entry.id, item.restorable]), [["c", false], ["b", true], ["a", true]]);
 });

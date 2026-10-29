@@ -2,9 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { parseBookingInput, parseGuestEdit } from "../src/shared/visits-booking.ts";
 import {
-  availabilityDraft, availabilityRequest, bookingRequest, cancelReason, emptyBookingDraft, guestPageLink, lookupFill, lookupNumber, newSubmissionKey,
-  readFailure, settingsUpdate, staffVisitDraft, staffVisitEdit, submissionAttempt, teamLookupQuery, validateBookingDraft, validateStaffVisitDraft,
-  validateVisitDraft, visitDraft, visitEdit, type BookingDraft,
+  availabilityDraft, availabilityRequest, bookingFieldOrder, bookingFieldSources, bookingRequest, cancelReason, checkBookingField, checkStaffVisitField,
+  checkVisitField, emptyBookingDraft, guestPageLink, liveBlur, liveChange, liveCheckState, liveShow, lookupFill, lookupNumber, newSubmissionKey, readFailure,
+  settingsUpdate, staffVisitDraft, staffVisitEdit, submissionAttempt, teamLookupQuery, validateBookingDraft, validateStaffVisitDraft, validateVisitDraft,
+  visitDraft, visitEdit, visitFieldOrder, type BookingDraft, type LiveCheckState,
 } from "../src/dashboard/visits-forms.ts";
 import type { StaffBooking, VisitsSettings } from "../src/shared/visits-api.ts";
 
@@ -48,6 +49,101 @@ test("every booking problem is reported against its request field", () => {
   assert.equal(wrong.departure, "The departure must be after the arrival");
   assert.equal(wrong.headcount, "Visits are for 1 to 100 people");
   assert.deepEqual(validateBookingDraft({ ...filled, program: "Other", teamNumber: "99x" }, "2026-11-02"), {});
+});
+
+test("each booking field checks alone by the rules submit uses", () => {
+  const check = (field: string, changes: Partial<BookingDraft> = {}) => checkBookingField(field, { ...filled, ...changes });
+  const wrong: BookingDraft = { ...filled, teamNumber: "32a", contactEmail: "coach", contactPhone: "555 x1", departure: "17:00", headcount: "101", contactName: " " };
+  for (const [draft, date] of [[filled, "2026-11-02"], [emptyBookingDraft, undefined], [wrong, "2026-11-02"], [{ ...wrong, program: "Other" }, undefined]] as const) {
+    const errors = validateBookingDraft(draft, date);
+    for (const field of bookingFieldOrder) assert.equal(checkBookingField(field, draft, date), errors[field], `${field} agrees with submit`);
+  }
+  assert.equal(check("windowId"), undefined, "a field without a rule passes");
+  assert.equal(check("program", { program: "" }), "Choose the program");
+  assert.equal(check("teamName", { teamName: "  " }), "Enter the team name");
+  assert.equal(check("contactName", { contactName: "" }), "Enter the contact name");
+  assert.equal(check("contactEmail", { contactEmail: " " }), "Enter an email address for the confirmation");
+  for (const email of ["coach", "coach@example", "a@example.org, b@example.org", "Coach <coach@example.org>"]) assert.equal(check("contactEmail", { contactEmail: email }), "Enter one email address, like name@example.org", email);
+  assert.equal(check("contactEmail", { contactEmail: " coach@example.org " }), undefined);
+});
+
+test("live booking checks: phone symbols, team numbers by program and headcount bounds", () => {
+  const check = (field: string, changes: Partial<BookingDraft>) => checkBookingField(field, { ...filled, ...changes });
+  for (const phone of ["", "555-010-0199", "+1 (555) 010-0199", "555.010.0199", " 555 010 0199 "]) assert.equal(check("contactPhone", { contactPhone: phone }), undefined, phone);
+  for (const phone of ["555-010-0199 x123", "555-010-0199 ext. 123", "555-010-0199 extension 4", "555-HELP-NOW"]) assert.equal(check("contactPhone", { contactPhone: phone }), "Enter the phone number without letters or an extension", phone);
+  assert.equal(check("contactPhone", { contactPhone: "555-010-0199 #12" }), "Use only digits, spaces, dots, hyphens, parentheses and a leading +");
+  assert.equal(check("contactPhone", { contactPhone: "010-99" }), "Enter a phone number with its area code, or leave it empty");
+  assert.equal(check("teamNumber", { teamNumber: "254" }), undefined);
+  assert.equal(check("teamNumber", { teamNumber: "123456" }), undefined);
+  assert.equal(check("teamNumber", { teamNumber: "1234567" }), "Team numbers are at most 6 digits");
+  assert.equal(check("teamNumber", { teamNumber: "ROBO-7" }), "FRC team numbers are digits only");
+  assert.equal(check("teamNumber", { program: "Challenge", teamNumber: "12a" }), "FIRST LEGO League Challenge team numbers are digits only");
+  assert.equal(check("teamNumber", { program: "Other", teamNumber: "ROBO-7" }), undefined, "Other teams keep letters");
+  assert.equal(check("teamNumber", { program: "Other", teamNumber: "ROBO 7" }), "Team numbers are up to 10 letters, digits and hyphens");
+  assert.equal(check("teamNumber", { program: "", teamNumber: "ROBO-7" }), undefined, "only required until a program is chosen");
+  assert.equal(check("teamNumber", { program: "", teamNumber: " " }), "Enter the team number");
+  for (const count of ["1", "100", " 12 "]) assert.equal(check("headcount", { headcount: count }), undefined, count);
+  for (const count of ["0", "101"]) assert.equal(check("headcount", { headcount: count }), "Visits are for 1 to 100 people", count);
+  for (const count of ["", "1.5", "-3", "ten"]) assert.equal(check("headcount", { headcount: count }), "Enter how many people are coming", count);
+});
+
+test("visit and staff edit fields check alone by the rules submit uses", () => {
+  const draft = staffVisitDraft(booking);
+  const wrong = { ...draft, date: "", arrival: "", departure: "17:00", headcount: "0", contactName: " ", contactPhone: "555 010 0199 ext 9", contactEmail: "nope", teamId: "" };
+  for (const value of [draft, wrong, { ...wrong, arrival: "18:00" }]) {
+    const visit = validateVisitDraft(value), staff = validateStaffVisitDraft(value);
+    for (const field of [...visitFieldOrder, "contactEmail", "teamId"]) {
+      assert.equal(checkVisitField(field, value), visit[field], `visit ${field}`);
+      assert.equal(checkStaffVisitField(field, value), staff[field], `staff ${field}`);
+    }
+  }
+  assert.equal(checkVisitField("contactEmail", wrong), undefined, "guests do not change the email address");
+  assert.equal(checkStaffVisitField("contactEmail", wrong), "Enter one email address, like name@example.org");
+  assert.equal(checkStaffVisitField("contactPhone", wrong), "Enter the phone number without letters or an extension");
+  assert.equal(checkStaffVisitField("headcount", { ...draft, headcount: "100" }), undefined);
+  assert.equal(checkStaffVisitField("headcount", { ...draft, headcount: "101" }), "Visits are for 1 to 100 people");
+});
+
+test("live checks show a problem when a field is left, then follow it as it changes", () => {
+  const start = liveCheckState(visitDraft(booking));
+  let state = liveChange(start, { ...start.draft, contactName: "", arrival: "21:00" }, checkVisitField);
+  assert.deepEqual(state.errors, {}, "typing shows nothing, nor does a change to a field never left");
+  state = liveBlur(state, "contactName", checkVisitField);
+  assert.deepEqual(state.errors, { contactName: "Enter the contact name" });
+  state = liveChange(state, { ...state.draft, contactName: "S" }, checkVisitField);
+  assert.deepEqual(state.errors, {}, "the message goes at the first valid value");
+  state = liveChange(state, { ...state.draft, contactName: "" }, checkVisitField);
+  assert.deepEqual(state.errors, {}, "emptying it again waits for the next blur");
+  state = liveBlur(liveChange(state, { ...state.draft, headcount: "0" }, checkVisitField), "headcount", checkVisitField);
+  state = liveChange(state, { ...state.draft, headcount: "" }, checkVisitField);
+  assert.equal(state.errors.headcount, "Enter how many people are coming", "a field showing a problem is checked as it changes");
+  state = liveChange(state, { ...state.draft, headcount: "100" }, checkVisitField);
+  assert.equal(state.errors.headcount, undefined);
+  assert.equal(liveBlur(state, "headcount", checkVisitField), state, "leaving a checked field that passes changes nothing");
+  state = liveShow(state, validateVisitDraft({ ...state.draft, contactPhone: "555 0199 x2" }));
+  assert.deepEqual(Object.keys(state.errors), ["departure", "contactName", "contactPhone"], "submit shows every problem");
+});
+
+test("live checks follow fields that depend on another, and keep a Worker refusal until its field changes", () => {
+  const check = (field: string, draft: BookingDraft) => checkBookingField(field, draft, draft.windowId ? "2026-11-02" : undefined);
+  const change = (state: LiveCheckState<BookingDraft>, changes: Partial<BookingDraft>) => liveChange(state, { ...state.draft, ...changes }, check, bookingFieldSources);
+  let state = liveBlur(liveCheckState<BookingDraft>({ ...filled, program: "", teamNumber: "ROBO-7" }), "teamNumber", check);
+  assert.deepEqual(state.errors, {}, "no program chosen yet");
+  state = change(state, { program: "FRC" });
+  assert.equal(state.errors.teamNumber, "FRC team numbers are digits only", "choosing a program checks the number left before");
+  state = change(state, { program: "Other" });
+  assert.equal(state.errors.teamNumber, undefined);
+  state = change(liveBlur(state, "departure", check), { arrival: "20:30" });
+  assert.equal(state.errors.departure, "The departure must be after the arrival", "moving the arrival checks the departure left before");
+  state = change(state, { arrival: "18:00" });
+  assert.equal(state.errors.departure, undefined);
+  state = liveShow(state, { contactEmail: "This address cannot receive email", date: "That time is full" });
+  state = change(liveBlur(state, "contactEmail", check), { note: "Robot" });
+  assert.deepEqual(state.errors, { contactEmail: "This address cannot receive email", date: "That time is full" }, "leaving the field or changing another keeps a refusal");
+  state = change(state, { windowId: "w2" });
+  assert.deepEqual(state.errors, { contactEmail: "This address cannot receive email" }, "another time slot answers for date");
+  state = change(state, { contactEmail: "coach@example.net" });
+  assert.deepEqual(state.errors, {});
 });
 
 test("a retry of the same booking keeps its submission key; a changed booking gets a new one", () => {
