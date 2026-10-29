@@ -146,7 +146,6 @@ function AvailabilityStep({ visits, busy, last, onSaved, onContinue }: { visits:
       <legend className="visually-hidden">First availability</legend>
       <AvailabilityFields draft={form.draft} onChange={form.setDraft} errors={form.errors} ids={form.ids} />
     </fieldset>
-    <p className="field-help">Times are in the {visits.timeZone.replace(/_/g, " ")} time zone.</p>
     {form.formError && <p className="ui-status settings-notice" data-tone="error" role="alert">{form.formError}</p>}
     <div className="module-actions"><button className="ui-button ui-button--primary" type="submit" disabled={form.busy || busy}>{form.busy || busy ? "Saving..." : finish}</button></div>
   </form>;

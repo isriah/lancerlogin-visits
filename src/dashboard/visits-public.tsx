@@ -1,5 +1,6 @@
-// The guest page at /visit and its sub pages. Anyone with the URL sees the open windows for the coming weeks with the
-// teams already coming, and books a visit; /visit/manage changes or cancels one through the emailed link. Phone first.
+// The guest page at /visit and its sub pages. Anyone with the URL sees a month calendar of the coming weeks, chooses a
+// day with open times, sees the teams already coming, then chooses a time slot and when they will arrive and leave and
+// books; /visit/manage changes or cancels a visit through the emailed link. Phone first.
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { DashboardPublicPageContext } from "@lancerlogin/module-sdk/dashboard";
 import { publicVisitsRoutes, type PublicBookingRequest, type PublicBookingResult, type PublicCalendar, type PublicTeamLookup } from "../shared/visits-api.ts";
@@ -9,10 +10,11 @@ import {
   bookingFieldOrder, bookingRequest, emptyBookingDraft, lookupFill, lookupNumber, newSubmissionKey, submissionAttempt, teamLookupQuery, validateBookingDraft,
   type BookingDraft, type FieldErrors, type SubmissionAttempt,
 } from "./visits-forms.ts";
+import { GuestCalendar, guestDayId } from "./visits-guest-calendar";
 import { aborted, failureOf, guestRequest } from "./visits-http.ts";
 import { programChoices, teamText } from "./visits-labels.ts";
 import {
-  arrivalChoices, defaultDeparture, departureChoices, formatTimeRange, groupRangesByDate, localReading, localSpan, peopleText, teamCountText, type LocalSpan,
+  arrivalChoices, defaultDeparture, departureChoices, formatTimeRange, groupRangesByDate, guestDays, guestMonths, localReading, localSpan, peopleText, teamCountText, type LocalSpan,
 } from "./visits-local.ts";
 import { GuestManagePage } from "./visits-manage";
 import { Field, fieldAria, firstProblem, inPageLink, preventImplicitSubmission, useFieldIds, useFocusRequest } from "./visits-ui";
@@ -46,6 +48,8 @@ function GuestBookingPage() {
   const [formError, setFormError] = useState("");
   const [busy, setBusy] = useState(false);
   const [booked, setBooked] = useState<{ result: PublicBookingResult; team: string }>();
+  const [selectedDate, setSelectedDate] = useState("");
+  const [month, setMonth] = useState("");
   const [lookupNote, setLookupNote] = useState("");
   const attempt = useRef<SubmissionAttempt | null>(null);
   const filledName = useRef<string | null>(null);
@@ -89,7 +93,13 @@ function GuestBookingPage() {
   const days = useMemo(() => calendar ? groupRangesByDate(calendar.windows, timeZone) : [], [calendar, timeZone]);
   const bookable = useMemo(() => days.flatMap((day) => day.items).filter((window) => window.status === "open" && window.endMs > now
     && arrivalChoices(window.local, earliestArrival(window, localNow)).length > 0), [days, now, localNow]);
-  const chosen = bookable.find((window) => window.id === draft.windowId);
+  const calendarDays = useMemo(() => guestDays(days.flatMap((day) => day.items), new Set(bookable.map((window) => window.id))), [days, bookable]);
+  const browse = useMemo(() => guestMonths(localNow.date, calendar?.horizonDays ?? 0, calendarDays), [localNow.date, calendar, calendarDays]);
+  const shownMonth = browse.months.includes(month) ? month : browse.initial;
+  const calendarId = ids("calendar");
+  const dayWindows = days.find((day) => day.date === selectedDate)?.items ?? [];
+  const dayBookable = bookable.filter((window) => window.local.date === selectedDate);
+  const chosen = dayBookable.find((window) => window.id === draft.windowId);
   const arrivals = chosen ? arrivalChoices(chosen.local, earliestArrival(chosen, localNow)) : [];
   const departures = chosen ? departureChoices(chosen.local, draft.arrival) : [];
 
@@ -110,7 +120,18 @@ function GuestBookingPage() {
     });
     setErrors((current) => { const next = { ...current }; delete next.arrival; delete next.departure; return next; });
   }
-  function bookWindow(id: string) { chooseWindow(id); focus(ids("date")); }
+  // Choosing a day opens its times below the calendar and moves focus there; a day with one open time chooses it.
+  function selectDay(date: string) {
+    const open = bookable.filter((window) => window.local.date === date);
+    setSelectedDate(date); setFormError("");
+    if (open.length === 1) chooseWindow(open[0]!.id);
+    else {
+      setDraft((current) => ({ ...current, windowId: "", arrival: "", departure: "" }));
+      setErrors((current) => { const next = { ...current }; delete next.date; delete next.arrival; delete next.departure; return next; });
+    }
+    focus(ids("day"));
+  }
+  function changeDay() { setMonth(selectedDate.slice(0, 7)); focus(guestDayId(calendarId, selectedDate)); }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -132,7 +153,9 @@ function GuestBookingPage() {
       void load();
     } catch (error) {
       const failure = failureOf(error);
-      const field = failure.field === "date" || (bookingFieldOrder as readonly string[]).includes(failure.field) ? failure.field : "";
+      // With a single time slot there is no slot field to mark, so a problem with the slot shows at the top of the form.
+      const reported = failure.field === "date" && dayBookable.length <= 1 ? "" : failure.field;
+      const field = reported === "date" || (bookingFieldOrder as readonly string[]).includes(reported) ? reported : "";
       if (field && !failure.transient) { setErrors({ [field]: failure.message }); focus(ids(field)); }
       else setFormError(failure.transient ? `${failure.message} Sending again is safe: it never books twice.` : failure.field === "submissionKey" ? "Reload the page and try again." : failure.message);
       if (failure.field === "date" || failure.field === "arrival") void load();
@@ -141,6 +164,7 @@ function GuestBookingPage() {
 
   function backToTimes() {
     setBooked(undefined);
+    setSelectedDate("");
     setDraft((current) => ({ ...current, windowId: "", arrival: "", departure: "", headcount: "", note: "" }));
   }
 
@@ -163,24 +187,46 @@ function GuestBookingPage() {
       <p className="kicker">Guest Visits</p>
       <h1>{calendar?.hostName ? `Book a visit with ${calendar.hostName}` : "Book a team visit"}</h1>
       {calendar?.introText && <p className="visits-intro-text">{calendar.introText}</p>}
-      {calendar && <p className="field-help">Times are in the {calendar.timeZone.replace(/_/g, " ")} time zone.</p>}
     </header>
     {loading && !calendar && <p className="ui-status settings-notice" role="status">Loading open times...</p>}
     {loadError && !calendar && <div className="visits-load-error"><p className="ui-status settings-notice" data-tone="error" role="alert">{loadError}</p><button className="ui-button" type="button" onClick={() => void load()}>Try again</button></div>}
     {calendar && <>
-      <section className="visits-stack" aria-labelledby="visits-open-times-title">
-        <h2 id="visits-open-times-title">Open times</h2>
-        {days.length === 0 && <p className="ui-card visits-empty">No open times are posted for the next {Math.round(calendar.horizonDays / 7)} weeks. Check back later.</p>}
-        {days.map((day) => <section key={day.date} className="visits-day" aria-labelledby={`visits-day-${day.date}`}>
-          <h3 id={`visits-day-${day.date}`}>{formatShortDate(day.date)}</h3>
-          {day.items.map((window) => <PublicWindowCard key={window.id} window={window} timeZone={timeZone} bookable={bookable.some((item) => item.id === window.id)} onBook={() => bookWindow(window.id)} />)}
-        </section>)}
-      </section>
-      <section className="ui-card visits-booking-card" aria-labelledby="visits-book-title">
-        <h2 id="visits-book-title">Book a visit</h2>
-        <p className="field-help">Everyone with this page sees your team number, name and program, your times and how many people are coming. Contact details and your note go only to the team you are visiting.</p>
-        {bookable.length === 0 ? <p>There are no open times to book right now.</p> : <form className="ui-form visits-form" noValidate onSubmit={(event) => void submit(event)} onKeyDown={preventImplicitSubmission}>
+      {bookable.length === 0 && <p className="ui-card visits-empty" role="status">No open times are posted for the next {Math.round(calendar.horizonDays / 7)} weeks. Check back later.</p>}
+      <GuestCalendar id={calendarId} months={browse.months} month={shownMonth} onMonth={setMonth} today={localNow.date} days={calendarDays} selected={selectedDate} onSelect={selectDay} />
+      {selectedDate && <section className="ui-card visits-booking-card" aria-labelledby={ids("day")}>
+        <div className="visits-day-heading">
+          <h2 id={ids("day")} tabIndex={-1}>{formatShortDate(selectedDate)}</h2>
+          <button className="ui-button" type="button" onClick={changeDay}>Change day</button>
+        </div>
+        {dayWindows.map((window) => <PublicWindowCard key={window.id} window={window} timeZone={timeZone} />)}
+        {dayBookable.length === 0 ? <p>No open times are left on this day. Choose another highlighted day.</p> : <form className="ui-form visits-form" noValidate onSubmit={(event) => void submit(event)} onKeyDown={preventImplicitSubmission}>
           {formError && <p ref={formErrorRef} tabIndex={-1} className="ui-status settings-notice" data-tone="error" role="alert">{formError}</p>}
+          <fieldset className="visits-fieldset" disabled={busy}>
+            <legend>Your time</legend>
+            {dayBookable.length > 1 && <fieldset className="visits-fieldset visits-choice visits-slot-choice" aria-describedby={errors.date ? `${ids("date")}-error` : undefined}>
+              <legend>Time slot</legend>
+              {dayBookable.map((window, index) => <label key={window.id} className="checkbox-field">
+                <input id={index === 0 ? ids("date") : undefined} type="radio" name={ids("slot")} checked={draft.windowId === window.id} onChange={() => chooseWindow(window.id)} />
+                {formatTimeRange(window.local.startTime, window.local.endTime)}{window.title ? `, ${window.title}` : ""}
+              </label>)}
+              {errors.date && <span id={`${ids("date")}-error`} className="field-help visits-field-error">{errors.date}</span>}
+            </fieldset>}
+            <div className="visits-time-grid">
+              <Field id={ids("arrival")} label="Arrival" error={errors.arrival}>
+                <select {...fieldAria(ids("arrival"), errors.arrival)} className="ui-control ui-native-select" required disabled={!chosen} value={draft.arrival} onChange={(event) => chooseArrival(event.target.value)}>
+                  {!chosen && <option value="">Choose a time slot first</option>}
+                  {arrivals.map((time) => <option key={time} value={time}>{formatTime(time)}</option>)}
+                </select>
+              </Field>
+              <Field id={ids("departure")} label="Departure" error={errors.departure}>
+                <select {...fieldAria(ids("departure"), errors.departure)} className="ui-control ui-native-select" required disabled={!chosen} value={draft.departure} onChange={(event) => change("departure", event.target.value)}>
+                  {!chosen && <option value="">Choose a time slot first</option>}
+                  {departures.map((time) => <option key={time} value={time}>{formatTime(time)}</option>)}
+                </select>
+              </Field>
+            </div>
+          </fieldset>
+          <p className="field-help">Everyone with this page sees your team number, name and program, your times and how many people are coming. Contact details and your note go only to the team you are visiting.</p>
           <fieldset className="visits-fieldset" disabled={busy}>
             <legend>Your team</legend>
             <Field id={ids("program")} label="Program" error={errors.program}>
@@ -210,28 +256,6 @@ function GuestBookingPage() {
           </fieldset>
           <fieldset className="visits-fieldset" disabled={busy}>
             <legend>Visit</legend>
-            <Field id={ids("date")} label="When" error={errors.date}>
-              <select {...fieldAria(ids("date"), errors.date)} className="ui-control ui-native-select" required value={chosen ? chosen.id : ""} onChange={(event) => chooseWindow(event.target.value)}>
-                <option value="">Choose an open time</option>
-                {groupRangesByDate(bookable, timeZone).map((day) => <optgroup key={day.date} label={formatShortDate(day.date)}>
-                  {day.items.map((window) => <option key={window.id} value={window.id}>{formatTimeRange(window.local.startTime, window.local.endTime)}{window.title ? ` - ${window.title}` : ""}</option>)}
-                </optgroup>)}
-              </select>
-            </Field>
-            <div className="visits-time-grid">
-              <Field id={ids("arrival")} label="Arrival" error={errors.arrival}>
-                <select {...fieldAria(ids("arrival"), errors.arrival)} className="ui-control ui-native-select" required disabled={!chosen} value={draft.arrival} onChange={(event) => chooseArrival(event.target.value)}>
-                  {!chosen && <option value="">Choose a time first</option>}
-                  {arrivals.map((time) => <option key={time} value={time}>{formatTime(time)}</option>)}
-                </select>
-              </Field>
-              <Field id={ids("departure")} label="Departure" error={errors.departure}>
-                <select {...fieldAria(ids("departure"), errors.departure)} className="ui-control ui-native-select" required disabled={!chosen} value={draft.departure} onChange={(event) => change("departure", event.target.value)}>
-                  {!chosen && <option value="">Choose a time first</option>}
-                  {departures.map((time) => <option key={time} value={time}>{formatTime(time)}</option>)}
-                </select>
-              </Field>
-            </div>
             <Field id={ids("headcount")} label="People coming" error={errors.headcount} help="Count everyone: students, mentors and parents.">
               <input {...fieldAria(ids("headcount"), errors.headcount, true)} className="ui-control visits-number" type="number" inputMode="numeric" required min={1} max={100} step={1} value={draft.headcount} onChange={(event) => change("headcount", event.target.value)} />
             </Field>
@@ -241,19 +265,20 @@ function GuestBookingPage() {
           </fieldset>
           <div className="module-actions"><button className="ui-button ui-button--primary" type="submit" disabled={busy}>{busy ? "Booking..." : "Book visit"}</button></div>
         </form>}
-      </section>
+      </section>}
     </>}
     <p className="visits-staff-link"><a href="/dashboard">Staff sign in</a></p>
   </main>;
 }
 
-function PublicWindowCard({ window, timeZone, bookable, onBook }: { window: PublicWindow & { local: LocalSpan }; timeZone: string; bookable: boolean; onBook: () => void }) {
+/** A time slot on the chosen day: its hours and title, then the teams coming, or the reason it was canceled. */
+function PublicWindowCard({ window, timeZone }: { window: PublicWindow & { local: LocalSpan }; timeZone: string }) {
   const range = formatTimeRange(window.local.startTime, window.local.endTime);
   const canceled = window.status === "canceled";
   return <article className="visits-window" data-status={window.status} aria-labelledby={`visits-window-${window.id}`}>
     <div className="visits-window-heading">
       <div>
-        <h4 id={`visits-window-${window.id}`}>{range}</h4>
+        <h3 id={`visits-window-${window.id}`}>{range}</h3>
         {window.title && <p className="visits-window-title">{window.title}</p>}
       </div>
       {canceled
@@ -270,6 +295,5 @@ function PublicWindowCard({ window, timeZone, bookable, onBook }: { window: Publ
         </li>;
       })}
     </ul>}
-    {bookable && <button className="ui-button" type="button" onClick={onBook}>Book this time<span className="visually-hidden">: {formatShortDate(window.local.date)}, {range}</span></button>}
   </article>;
 }

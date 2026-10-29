@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { at, newYork } from "./helpers/civil-time.ts";
 import {
   arrivalChoices, compactTime, defaultDeparture, departureChoices, formatCompactDate, formatInstant, formatTimeRange, formatVisitWhen, groupByDate, groupRangesByDate,
-  localReading, localSpan, monthGridRange, peopleText, teamCountText, timeSteps, todayIn, visitCountText, weekdayListText,
+  formatMonth, guestDays, guestDayText, guestMonths, localReading, localSpan, monthCells, monthGridRange, monthsBetween, peopleText, teamCountText, timeSteps, todayIn,
+  visitCountText, weekdayListText,
 } from "../src/dashboard/visits-local.ts";
 
 test("instants read as local dates and times in the installation time zone", () => {
@@ -100,4 +101,51 @@ test("the suggested departure is an hour after arrival when the window allows, e
   assert.equal(defaultDeparture({ startTime: "18:10", endTime: "21:00" }, "18:10"), "19:15", "the first quarter hour at least an hour later");
   assert.equal(defaultDeparture(window, ""), "21:00");
   assert.equal(defaultDeparture(window, "21:00"), "");
+});
+
+test("guest calendar months format, span and lay out in Sunday-first weeks", () => {
+  assert.equal(formatMonth("2026-10"), "October 2026");
+  assert.deepEqual(monthsBetween("2026-11", "2027-01"), ["2026-11", "2026-12", "2027-01"]);
+  assert.deepEqual(monthsBetween("2026-11", "2026-10"), ["2026-11"], "an earlier last month still gives the first");
+  assert.throws(() => monthsBetween("2026-13", "2027-01"), RangeError);
+  const october = monthCells("2026-10");
+  assert.equal(october.length % 7, 0);
+  assert.deepEqual(october.slice(0, 5), [null, null, null, null, "2026-10-01"], "October 2026 starts on a Thursday");
+  assert.equal(october.filter(Boolean).length, 31);
+  assert.equal(october.at(-1), "2026-10-31", "Saturday the 31st ends the last week with no blank cells");
+  assert.equal(monthCells("2026-12").at(-1), null, "December 2026 ends on a Thursday, so blanks fill its last week");
+  assert.equal(monthCells("2026-02").filter(Boolean).length, 28);
+  assert.deepEqual(monthCells("2026-11").slice(0, 1), ["2026-11-01"], "a month starting on Sunday has no leading blanks");
+});
+
+const guestWindow = (id: string, date: string, startTime: string, endTime: string, status: "open" | "canceled" = "open", teamCount = 0) =>
+  ({ id, status, teamCount, local: { date, startTime, endTime } });
+
+test("guest calendar days are open, canceled or closed by what a guest can still book", () => {
+  const days = guestDays([
+    guestWindow("a", "2026-10-29", "16:00", "20:00", "open", 1),
+    guestWindow("b", "2026-10-29", "10:00", "12:00", "open", 2),
+    guestWindow("c", "2026-10-31", "16:00", "20:00", "canceled"),
+    guestWindow("d", "2026-10-28", "09:00", "11:00", "open", 3),
+    guestWindow("e", "2026-11-05", "16:00", "20:00", "open"),
+    guestWindow("f", "2026-11-05", "08:00", "09:00", "canceled"),
+  ], new Set(["a", "b", "e"]));
+  assert.deepEqual(days.get("2026-10-29"), { date: "2026-10-29", state: "open", openWindows: 2, teams: 3, startTime: "10:00", endTime: "20:00" });
+  assert.deepEqual(days.get("2026-10-31"), { date: "2026-10-31", state: "canceled", openWindows: 0, teams: 0, startTime: "16:00", endTime: "20:00" });
+  assert.equal(days.get("2026-10-28")!.state, "closed", "a window that can no longer be booked closes its day");
+  assert.equal(days.get("2026-11-05")!.state, "open", "an open window outweighs a canceled one");
+  assert.equal(days.get("2026-11-05")!.startTime, "16:00", "the cell shows the open window's hours");
+  assert.equal(guestDayText(days.get("2026-10-29")), "2 open times, 3 teams coming");
+  assert.equal(guestDayText(days.get("2026-11-05")), "1 open time");
+  assert.equal(guestDayText(days.get("2026-10-31")), "Canceled");
+  assert.equal(guestDayText(days.get("2026-10-28")), "No open times left");
+  assert.equal(guestDayText(undefined), "No open times");
+});
+
+test("guests browse from this month to the horizon and start at the first open day", () => {
+  const days = guestDays([guestWindow("a", "2026-12-03", "16:00", "20:00"), guestWindow("b", "2026-10-29", "16:00", "20:00", "canceled")], new Set(["a"]));
+  assert.deepEqual(guestMonths("2026-10-28", 56, days), { months: ["2026-10", "2026-11", "2026-12"], initial: "2026-12" });
+  assert.deepEqual(guestMonths("2026-10-28", 1, new Map()), { months: ["2026-10"], initial: "2026-10" }, "with nothing posted only this month shows");
+  const late = guestDays([guestWindow("a", "2027-01-04", "16:00", "20:00")], new Set(["a"]));
+  assert.deepEqual(guestMonths("2026-10-28", 7, late).months.at(-1), "2027-01", "a posted window past the horizon still gets its month");
 });

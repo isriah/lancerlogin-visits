@@ -54,13 +54,41 @@
 :where([data-module="visits"]) .visits-receipt h1:focus { outline: none; }
 :where([data-module="visits"]) .visits-receipt h1:focus-visible { outline: 3px solid var(--ui-focus); outline-offset: 2px; }
 :where([data-module="visits"]) .visits-empty { margin: 0; color: var(--ui-text-muted); }
+/* Guest calendar: a month of day buttons. Days with open times carry a primary tint (and a dot on phones, where the
+   cells have no room for times); a day whose times were all canceled has a dashed warning border; others are disabled. */
+:where([data-module="visits"]) .visits-calendar { display: grid; gap: var(--space-3); min-width: 0; }
+:where([data-module="visits"]) .visits-calendar-heading { display: grid; gap: var(--space-1); }
+:where([data-module="visits"]) .visits-calendar-heading > * { margin: 0; }
+:where([data-module="visits"]) .visits-calendar-nav { display: grid; grid-template-columns: var(--control-min-block-size) minmax(0, 1fr) var(--control-min-block-size); align-items: center; gap: var(--space-2); }
+:where([data-module="visits"]) .visits-calendar-nav > h3 { margin: 0; text-align: center; font-family: var(--font-body); font-size: var(--text-body); font-weight: 800; }
+:where([data-module="visits"]) .visits-calendar-nav > button { width: var(--control-min-block-size); min-height: var(--control-min-block-size); margin: 0; padding: var(--space-2); }
+:where([data-module="visits"]) :is(.visits-calendar-weekdays, .visits-calendar-grid) { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: var(--space-1); }
+:where([data-module="visits"]) .visits-calendar-weekdays > span { text-align: center; color: var(--ui-text-muted); font-size: var(--text-caption); font-weight: 700; }
+:where([data-module="visits"]) .visits-calendar-day { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.125rem; min-width: 0; min-height: calc(var(--control-min-block-size) + var(--space-2)); margin: 0; padding: var(--space-1); border: 1px solid transparent; border-radius: var(--radius-control); background: transparent; color: var(--ui-text); font: inherit; font-size: var(--text-body); cursor: pointer; }
+:where([data-module="visits"]) .visits-calendar-day:disabled { color: var(--ui-text-muted); cursor: default; }
+:where([data-module="visits"]) .visits-calendar-day[data-state="open"] { border-color: color-mix(in srgb, var(--primary) 45%, var(--ui-border)); background: color-mix(in srgb, var(--primary) 12%, var(--surface)); font-weight: 750; }
+:where([data-module="visits"]) .visits-calendar-day[data-state="open"]::after { content: ""; width: 0.375rem; height: 0.375rem; border-radius: 50%; background: currentColor; }
+:where([data-module="visits"]) .visits-calendar-day[data-state="canceled"] { border: 1px dashed var(--ui-warning); }
+:where([data-module="visits"]) .visits-calendar-day[aria-pressed="true"] { border-color: var(--primary); background: var(--primary); color: var(--on-primary); }
+:where([data-module="visits"]) .visits-calendar-day[aria-current="date"] .visits-calendar-number { text-decoration: underline; text-underline-offset: 0.2em; }
+:where([data-module="visits"]) .visits-calendar-day:focus-visible { outline: 3px solid var(--ui-focus); outline-offset: 1px; }
+:where([data-module="visits"]) :is(.visits-calendar-detail, .visits-calendar-teams) { display: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-caption); font-weight: 600; }
+:where([data-module="visits"]) .visits-day-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); }
+:where([data-module="visits"]) .visits-day-heading > h2 { margin: 0; }
+:where([data-module="visits"]) .visits-day-heading > h2:focus { outline: none; }
+:where([data-module="visits"]) .visits-day-heading > h2:focus-visible { outline: 3px solid var(--ui-focus); outline-offset: 2px; }
+@media (min-width: 40rem) {
+  :where([data-module="visits"]) .visits-calendar-day { align-items: stretch; justify-content: flex-start; min-height: 5rem; padding: var(--space-2); text-align: left; }
+  :where([data-module="visits"]) .visits-calendar-day[data-state="open"]::after { display: none; }
+  :where([data-module="visits"]) :is(.visits-calendar-detail, .visits-calendar-teams) { display: block; }
+}
 :where([data-module="visits"]) .visits-day { display: grid; gap: var(--space-3); min-width: 0; }
 :where([data-module="visits"]) .visits-day > h3 { margin: 0; font-family: var(--font-body); font-size: var(--text-card-heading); font-weight: 800; }
 :where([data-module="visits"]) .visits-window { display: grid; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--ui-border); border-left: 4px solid var(--primary); border-radius: var(--radius-card); color: var(--ui-text); background: var(--ui-surface); }
 :where([data-module="visits"]) .visits-window[data-status="canceled"] { border-left-color: var(--ui-warning); background: var(--ui-surface-subtle); }
 :where([data-module="visits"]) .visits-window > button.ui-button { justify-self: start; }
 :where([data-module="visits"]) .visits-window-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); }
-:where([data-module="visits"]) .visits-window-heading h4 { margin: 0; font-family: var(--font-body); font-size: var(--text-body); font-weight: 800; }
+:where([data-module="visits"]) .visits-window-heading h3 { margin: 0; font-family: var(--font-body); font-size: var(--text-body); font-weight: 800; }
 :where([data-module="visits"]) .visits-window-title { margin: var(--space-1) 0 0; color: var(--ui-text-muted); font-size: var(--text-small); }
 :where([data-module="visits"]) .visits-team-count { color: var(--ui-text-muted); font-size: var(--text-small); font-weight: 700; }
 :where([data-module="visits"]) .visits-team-list { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
@@ -137,6 +165,7 @@
 @media (max-width: 40rem) {
   :where([data-module="visits"]) .visits-public-page { width: min(100% - 1rem, 46rem); margin-block: var(--space-3); gap: var(--space-4); }
   :where([data-module="visits"]) .visits-booking-card,:where([data-module="visits"]) .visits-receipt,:where([data-module="visits"]) .visits-public-message { padding: var(--space-4); }
+  :where([data-module="visits"]) .visits-calendar { padding: var(--space-3); }
   :where([data-module="visits"]) .visits-form .module-actions > button.ui-button,
   :where([data-module="visits"]) .visits-receipt .module-actions > button.ui-button { width: 100%; }
   :where([data-module="visits"]) .visits-form .module-actions { display: grid; }

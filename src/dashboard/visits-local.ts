@@ -1,7 +1,7 @@
 // Local dates and times for the Guest Visits pages. Staff data arrives as local dates (YYYY-MM-DD) and times (HH:MM) in
 // the installation time zone; the guest page and history arrive as instants, which these helpers read in that time zone
 // with the browser's Intl. Everything here is plain functions over src/shared, so `npm test` covers it without React.
-import { addDays, formatShortDate, formatTime, isLocalDate, isLocalTime, minutesOfDay, weekdayNames, weekdayOf } from "../shared/visits-time.ts";
+import { addDays, formatShortDate, formatTime, isLocalDate, isLocalTime, minutesOfDay, monthNames, weekdayNames, weekdayOf } from "../shared/visits-time.ts";
 
 /** A local reading of an instant: calendar date and HH:MM time. */
 export type LocalReading = { readonly date: string; readonly time: string };
@@ -112,6 +112,36 @@ export function monthGridRange(today: string, offset: number): { readonly from: 
   return { from: addDays(first, -weekdayOf(first)), to: addDays(last, 6 - weekdayOf(last)), month: first.slice(0, 7) };
 }
 
+const monthPattern = /^\d{4}-(0[1-9]|1[0-2])$/;
+const monthIndex = (month: string) => { const [year, number] = month.split("-").map(Number); return year! * 12 + number! - 1; };
+const monthAt = (index: number) => `${String(Math.floor(index / 12)).padStart(4, "0")}-${String((index % 12) + 1).padStart(2, "0")}`;
+
+/** "October 2026" for "2026-10". */
+export function formatMonth(month: string): string {
+  if (!monthPattern.test(month)) throw new RangeError(`Not a month: ${month}`);
+  return `${monthNames[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`;
+}
+
+/** The months from `first` to `last` (YYYY-MM), both included, or only `first` when `last` is earlier. */
+export function monthsBetween(first: string, last: string): string[] {
+  if (!monthPattern.test(first) || !monthPattern.test(last)) throw new RangeError(`Not a month range: ${first} to ${last}`);
+  const start = monthIndex(first);
+  return Array.from({ length: Math.max(1, monthIndex(last) - start + 1) }, (_, index) => monthAt(start + index));
+}
+
+/**
+ * A month's calendar cells, weeks starting on Sunday: `null` for the blank cells before its first day and after its last,
+ * then each local date. The length is a whole number of weeks.
+ */
+export function monthCells(month: string): (string | null)[] {
+  if (!monthPattern.test(month)) throw new RangeError(`Not a month: ${month}`);
+  const first = `${month}-01`;
+  const last = addDays(`${monthAt(monthIndex(month) + 1)}-01`, -1);
+  const dates = Array.from({ length: Number(last.slice(8)) }, (_, index) => addDays(first, index));
+  const lead = weekdayOf(first);
+  return [...Array<null>(lead).fill(null), ...dates, ...Array<null>((7 - ((lead + dates.length) % 7)) % 7).fill(null)];
+}
+
 const asTime = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 
 /**
@@ -160,6 +190,57 @@ export function peopleText(count: number): string {
 /** "No teams yet", "1 team coming", "3 teams coming". */
 export function teamCountText(count: number): string {
   return count === 0 ? "No teams yet" : `${count} ${count === 1 ? "team" : "teams"} coming`;
+}
+
+/**
+ * A day on the guest calendar. `open` days have a window a guest can still book; `canceled` days have only canceled
+ * windows, which guests may open to read the reason; `closed` days have windows that can no longer be booked, such as
+ * today's after they started. The times are the earliest start and latest end of the windows the state describes.
+ */
+export type GuestDay = {
+  readonly date: string;
+  readonly state: "open" | "canceled" | "closed";
+  readonly openWindows: number;
+  readonly teams: number;
+  readonly startTime: string;
+  readonly endTime: string;
+};
+
+/** Guest calendar days by local date, from the guest page's windows and the IDs of the ones that can be booked. */
+export function guestDays(windows: readonly { readonly id: string; readonly status: "open" | "canceled"; readonly teamCount: number; readonly local: LocalSpan }[], bookable: ReadonlySet<string>): Map<string, GuestDay> {
+  const days = new Map<string, GuestDay>();
+  for (const { date, items } of groupByDate(windows, (window) => window.local.date)) {
+    const open = items.filter((window) => bookable.has(window.id));
+    const state = open.length ? "open" : items.every((window) => window.status === "canceled") ? "canceled" : "closed";
+    const shown = open.length ? open : items;
+    days.set(date, {
+      date, state, openWindows: open.length,
+      teams: items.reduce((total, window) => total + (window.status === "open" ? window.teamCount : 0), 0),
+      startTime: shown.map((window) => window.local.startTime).sort()[0]!,
+      endTime: shown.map((window) => window.local.endTime).sort().at(-1)!,
+    });
+  }
+  return days;
+}
+
+/** What a guest calendar day holds, for its accessible name: "2 open times, 1 team coming", "Canceled", "No open times". */
+export function guestDayText(day: GuestDay | undefined): string {
+  if (!day) return "No open times";
+  if (day.state === "canceled") return "Canceled";
+  if (day.state === "closed") return "No open times left";
+  const times = `${day.openWindows} open ${day.openWindows === 1 ? "time" : "times"}`;
+  return day.teams ? `${times}, ${teamCountText(day.teams)}` : times;
+}
+
+/**
+ * The months a guest may browse: from this month to the month of the horizon's last day or the last posted window,
+ * whichever is later, and the month to show first: the first one with an open day, else this month.
+ */
+export function guestMonths(today: string, horizonDays: number, days: ReadonlyMap<string, GuestDay>): { readonly months: string[]; readonly initial: string } {
+  const dates = [...days.keys()].sort();
+  const last = [addDays(today, Math.max(0, horizonDays - 1)), dates.at(-1) ?? today].sort().at(-1)!;
+  const firstOpen = dates.find((date) => days.get(date)!.state === "open");
+  return { months: monthsBetween(today.slice(0, 7), last.slice(0, 7)), initial: (firstOpen ?? today).slice(0, 7) };
 }
 
 /** "1 visit", "3 visits". */

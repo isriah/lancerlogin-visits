@@ -148,7 +148,7 @@ export function localRange(civil: CivilTime, timeZone: string, date: string, sta
 }
 
 export const weekdayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const;
-const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"] as const;
+export const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"] as const;
 
 /** "Monday, November 2, 2026". */
 export function formatDate(date: string): string {
