@@ -1,119 +1,59 @@
-// Team lookup by number (`GET /public/visits/team-search`) and the Admin's FIRST API credentials
-// (`/admin/visits/settings/first-api`). A search asks FIRST's FRC and FTC team lists for each program with a saved
-// credential, from a seven-day cache where it can, and adds this installation's saved guest teams. Requests go through
-// `deps.fetch` with a short timeout, carry only the team number and the credential, and guest lookups count toward a
-// per-minute limit. Tokens are stored only as Core's ciphertext and never appear in responses, errors or logs.
+// Team lookup by number (`GET /public/visits/team-search`) through Core's shared FIRST connection, `services.first`
+// (module SDK 1.2.0), and its status for Settings > Guest Visits (`GET /admin/visits/settings/first-api`). Core holds the
+// FRC and FTC credentials, caches FIRST's answers and applies the request limits; Guest Visits sends it only the team
+// number and adds this installation's saved guest teams.
+//
+// Before team lookup moved to Core, Guest Visits kept its own FRC and FTC credentials in visits_first_credentials. Each
+// Worker isolate offers those to Core once, on its first team search, settings read or job pass, with
+// `importLegacyCredential`, and deletes each one Core took or already had. A credential Core cannot read stays, so a later
+// isolate can try again once the integration key is fixed, until Core has a working credential of its own for that program.
 import type { D1Database } from "@lancerlogin/module-sdk/api";
-import type { FirstApiProgram, FirstApiStatus, PublicTeamSearch, TeamMatch } from "../shared/visits-api.ts";
+import type { FirstApiProgram, FirstLookupStatus, PublicTeamSearch, TeamMatch } from "../shared/visits-api.ts";
 import { parseTeamNumber, type VisitProgram } from "../shared/visits-booking.ts";
-import {
-  basicAuthorization, currentSeasonOf, firstApiPrograms, firstRequestLimit, firstRequestWindowMs, firstRootUrl, firstSeasonCacheMs, firstSeasonUrl, likelySeason,
-  firstTeamCacheMs, firstTeamOf, firstTeamsUrl, firstTimeoutMs, isFirstApiProgram, mergeTeamMatches, parseFirstCredential, type FirstTeam,
-} from "../shared/visits-team-search.ts";
-import { installationId, iso, objectBody, ok, onlyFields, refuse, rows, VisitsError, type RouteResult, type VisitsDeps } from "./visits-runtime.ts";
+import { firstApiPrograms, firstMatchesOf, isFirstApiProgram, mergeTeamMatches } from "../shared/visits-team-search.ts";
+import { installationId, rows, VisitsError, type VisitsDeps } from "./visits-runtime.ts";
 
 type CredentialRow = { program: FirstApiProgram; username: string; ciphertext: string; iv: string; checked_at: string };
-/** FIRST's status and JSON body (null unless 200), or null when FIRST could not be reached in time or was not asked. */
-/** FIRST's status and answer: parsed JSON, or null with the first part of the text when the answer is not JSON. */
-type Reply = { readonly status: number; readonly body: unknown; readonly text: string } | null;
-type Get = (url: string) => Promise<Reply>;
 
-/** One GET to FIRST with the credential, given up after `firstTimeoutMs`. */
-async function firstGet(deps: VisitsDeps, url: string, authorization: string): Promise<Reply> {
-  try {
-    const response = await deps.fetch(url, { headers: { accept: "application/json", authorization }, signal: AbortSignal.timeout(firstTimeoutMs) });
-    if (!response.ok) { await response.body?.cancel().catch(() => undefined); return { status: response.status, body: null, text: "" }; }
-    const text = await response.text();
-    let body: unknown = null;
-    try { body = JSON.parse(text.replace(/^﻿/, "")); } catch { /* Not JSON: the text alone is kept. */ }
-    return { status: response.status, body, text: body === null ? text.slice(0, 2000) : "" };
-  } catch { return null; }
-}
+const legacyCredentials = (db: D1Database) =>
+  rows<CredentialRow>(db.prepare("SELECT program,username,ciphertext,iv,checked_at FROM visits_first_credentials WHERE installation_id=? ORDER BY program").bind(installationId));
 
-/** Count one request to FIRST against the rolling per-minute limit. False when the limit is reached. */
-async function reserveRequest(db: D1Database, now: number): Promise<boolean> {
-  const since = now - firstRequestWindowMs;
-  const [, reserved] = await db.batch([
-    db.prepare("DELETE FROM visits_first_requests WHERE installation_id=? AND requested_ms<=?").bind(installationId, since),
-    db.prepare("INSERT INTO visits_first_requests(installation_id,id,requested_ms) SELECT ?,?,? WHERE (SELECT COUNT(*) FROM visits_first_requests WHERE installation_id=? AND requested_ms>?)<?")
-      .bind(installationId, crypto.randomUUID(), now, installationId, since, firstRequestLimit),
-  ]);
-  return reserved?.meta?.changes === 1;
-}
+/** Forget one saved credential, only if it is still the one that was offered. */
+const forget = (db: D1Database, row: CredentialRow) =>
+  db.prepare("DELETE FROM visits_first_credentials WHERE installation_id=? AND program=? AND ciphertext=? AND iv=?").bind(installationId, row.program, row.ciphertext, row.iv).run();
 
 /**
- * The program's current season, cached for a day: from the API root, or the season the date suggests when the root
- * answers without naming one, as FRC's does. A root that fails caches nothing; a stale season, else the date, serves.
+ * Offer Guest Visits' saved FIRST credentials to Core, once per isolate. Core takes a credential only for a program it has
+ * none for ("imported"); an Admin's own Core credential wins ("kept-existing"). Either way the Guest Visits copy is no
+ * longer needed and is deleted. "unreadable" (Core cannot decrypt it with its integration key) and a refused import keep
+ * the row. Failures never reach the caller: a lookup then simply runs on whatever Core already has.
  */
-async function currentSeason(db: D1Database, program: FirstApiProgram, now: number, get: Get): Promise<number> {
-  const cached = await db.prepare("SELECT season,checked_ms FROM visits_first_seasons WHERE installation_id=? AND program=?").bind(installationId, program).first<{ season: number; checked_ms: number }>();
-  if (cached && cached.checked_ms > now - firstSeasonCacheMs) return cached.season;
-  const reply = await get(firstRootUrl(program));
-  if (reply?.status !== 200) return cached?.season ?? likelySeason(program, now);
-  const season = currentSeasonOf(reply.body, reply.text) ?? likelySeason(program, now);
-  await db.prepare("INSERT INTO visits_first_seasons(installation_id,program,season,checked_ms) VALUES(?,?,?,?) ON CONFLICT(installation_id,program) DO UPDATE SET season=excluded.season,checked_ms=excluded.checked_ms")
-    .bind(installationId, program, season, now).run();
-  return season;
+export async function moveLegacyFirstCredentials(db: D1Database, deps: VisitsDeps): Promise<void> {
+  const state = deps.firstImport;
+  if (state.settled) return;
+  state.running ??= (async () => {
+    for (const row of await legacyCredentials(db)) {
+      if (!isFirstApiProgram(row.program)) continue;
+      let outcome: string | undefined;
+      try {
+        outcome = await deps.first.importLegacyCredential({ program: row.program, username: row.username, ciphertext: row.ciphertext, iv: row.iv, checkedAt: row.checked_at });
+      } catch { outcome = undefined; }
+      if (outcome === "imported" || outcome === "kept-existing") await forget(db, row);
+    }
+    state.settled = true;
+  })().catch(() => undefined).finally(() => { state.running = undefined; });
+  await state.running;
 }
 
-async function credentialRows(db: D1Database): Promise<Map<FirstApiProgram, CredentialRow>> {
-  const list = await rows<CredentialRow>(db.prepare("SELECT program,username,ciphertext,iv,checked_at FROM visits_first_credentials WHERE installation_id=?").bind(installationId));
-  return new Map(list.map((row) => [row.program, row]));
-}
+type FirstAnswer = { readonly matches: readonly TeamMatch[]; readonly complete: boolean };
 
-/** The Basic auth header for a saved credential, or undefined when Core cannot decrypt it. */
-async function authorizationOf(deps: VisitsDeps, credential: CredentialRow): Promise<string | undefined> {
-  if (!deps.credentials.available) return undefined;
+/** FIRST's FRC and FTC teams with this number from Core. Incomplete, with no matches, when Core cannot be asked. */
+async function lookUpFirst(db: D1Database, deps: VisitsDeps, number: string): Promise<FirstAnswer> {
+  await moveLegacyFirstCredentials(db, deps);
   try {
-    const { token } = await deps.credentials.decrypt(credential.ciphertext, credential.iv);
-    return token ? basicAuthorization(credential.username, token) : undefined;
-  } catch { return undefined; }
-}
-
-const firstMatch = (program: FirstApiProgram, number: string, team: FirstTeam | null): TeamMatch | null =>
-  team && { number, name: team.name, program, location: team.location, source: "first" };
-
-/** Keep FIRST's answer, "no team" too, while the credential is still saved; drop answers older than the cache time. */
-async function cacheAnswer(db: D1Database, program: FirstApiProgram, number: string, team: FirstTeam | null, now: number) {
-  await db.batch([
-    db.prepare("DELETE FROM visits_first_teams WHERE installation_id=? AND checked_ms<=?").bind(installationId, now - firstTeamCacheMs),
-    db.prepare(`INSERT INTO visits_first_teams(installation_id,program,number,name,location,checked_ms) SELECT ?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM visits_first_credentials WHERE installation_id=? AND program=?)
-      ON CONFLICT(installation_id,program,number) DO UPDATE SET name=excluded.name,location=excluded.location,checked_ms=excluded.checked_ms`)
-      .bind(installationId, program, number, team?.name ?? null, team?.location ?? "", now, installationId, program),
-  ]);
-}
-
-type ProgramAnswer = { readonly match: TeamMatch | null; readonly complete: boolean };
-const unanswered: ProgramAnswer = { match: null, complete: false };
-
-/**
- * FIRST's team with this number in one program: from the cache, else this season's team list and, when it has none, the
- * previous season's. Unanswered without a credential, over the limit, or when FIRST fails or times out; nothing is cached
- * then.
- */
-async function lookUpFirst(db: D1Database, deps: VisitsDeps, program: FirstApiProgram, number: string, credential: CredentialRow | undefined, now: number): Promise<ProgramAnswer> {
-  if (!credential) return unanswered;
-  const cached = await db.prepare("SELECT name,location FROM visits_first_teams WHERE installation_id=? AND program=? AND number=? AND checked_ms>?")
-    .bind(installationId, program, number, now - firstTeamCacheMs).first<{ name: string | null; location: string }>();
-  if (cached) return { match: firstMatch(program, number, cached.name === null ? null : { name: cached.name, location: cached.location }), complete: true };
-  const authorization = await authorizationOf(deps, credential);
-  if (!authorization) return unanswered;
-  const get: Get = async (url) => await reserveRequest(db, deps.now()) ? firstGet(deps, url, authorization) : null;
-  const season = await currentSeason(db, program, now, get);
-  // FIRST answers HTTP 400 (both FRC and FTC) or 404 for a number with no team in that season. It can also report a new
-  // season before its team lists are published, so a season that fails still falls back to the previous one. A team found
-  // in either season answers; "no team" needs both seasons to have said so.
-  const results: (FirstTeam | null | undefined)[] = [];
-  for (const year of [season, season - 1]) {
-    const reply = await get(firstTeamsUrl(program, year, number));
-    const found = reply?.status === 400 || reply?.status === 404 ? null : reply?.status === 200 ? firstTeamOf(reply.body, number) : undefined;
-    results.push(found);
-    if (found) break;
-  }
-  const team = results.find((result) => result) ?? null;
-  if (!team && !(results.length === 2 && results.every((result) => result === null))) return unanswered;
-  await cacheAnswer(db, program, number, team, now);
-  return { match: firstMatch(program, number, team), complete: true };
+    const answer = await deps.first.searchTeams({ number, programs: firstApiPrograms });
+    return { matches: firstMatchesOf(answer.results, number), complete: answer.complete === true };
+  } catch { return { matches: [], complete: false }; }
 }
 
 /** `GET /public/visits/team-search?number=`: FIRST's FRC and FTC teams with that number and this installation's saved teams. */
@@ -121,66 +61,32 @@ export async function searchTeams(db: D1Database, deps: VisitsDeps, url: URL): P
   const parsed = parseTeamNumber(url.searchParams.get("number") ?? "", "FRC", "number");
   if (!parsed.ok) throw new VisitsError(400, "Enter a team number of 1 to 6 digits", "number");
   const number = parsed.value;
-  const now = deps.now();
-  const [saved, credentials] = await Promise.all([
+  const [saved, first] = await Promise.all([
     rows<{ number: string; name: string; program: VisitProgram }>(db.prepare("SELECT number,name,program FROM visits_teams WHERE installation_id=? AND number=? AND archived=0").bind(installationId, number)),
-    credentialRows(db),
+    lookUpFirst(db, deps, number),
   ]);
-  const answers = await Promise.all(firstApiPrograms.map((program) => lookUpFirst(db, deps, program, number, credentials.get(program), now)));
   return {
-    matches: mergeTeamMatches(answers.flatMap((answer) => answer.match ? [answer.match] : []), saved.map((team): TeamMatch => ({ ...team, location: "", source: "saved" }))),
-    complete: answers.every((answer) => answer.complete),
+    matches: mergeTeamMatches(first.matches, saved.map((team): TeamMatch => ({ ...team, location: "", source: "saved" }))),
+    complete: first.complete,
   };
 }
 
-/** `GET /admin/visits/settings/first-api`: which programs have a credential, never the token. */
-export async function firstApiStatus(db: D1Database): Promise<FirstApiStatus> {
-  const saved = await credentialRows(db);
-  const status = (program: FirstApiProgram) => ({ configured: saved.has(program), username: saved.get(program)?.username ?? "", checkedAt: saved.get(program)?.checked_at ?? null });
-  return { FRC: status("FRC"), FTC: status("FTC") };
-}
-
-const refused = (program: FirstApiProgram) => new VisitsError(400, `FIRST did not accept this ${program} username and token. Check both and save again.`, "token");
+const off = { available: false, checkedAt: null } as const;
 
 /**
- * `PUT /admin/visits/settings/first-api`: check the credential with FIRST, then save it encrypted. The check reads the
- * current season (cached for a day) and then, with the credential, that season's summary, which needs a valid username
- * and token. Admin checks never count toward the guest lookup limit.
+ * `GET /admin/visits/settings/first-api`: whether Core can look up FRC and FTC teams, and which saved Guest Visits
+ * credentials could not be moved to Core. A credential that could not be moved is deleted once Core has a working one of
+ * its own for that program, since it is then never needed.
  */
-export async function saveFirstCredential(db: D1Database, deps: VisitsDeps, value: unknown): Promise<RouteResult> {
-  const input = objectBody(value);
-  onlyFields(input, ["program", "username", "token"]);
-  const parsed = parseFirstCredential(input);
-  if (!parsed.ok) refuse(parsed);
-  const { program, username, token } = parsed.value;
-  if (!deps.credentials.available) throw new VisitsError(409, "LancerLogin cannot encrypt saved credentials on this installation, so the token was not saved. Ask whoever deploys LancerLogin to set up credential encryption.");
-  const now = deps.now();
-  let last: Reply = null;
-  const get: Get = async (url) => {
-    last = await firstGet(deps, url, basicAuthorization(username, token));
-    if (last?.status === 401 || last?.status === 403) throw refused(program);
-    return last;
-  };
-  // FRC's API root needs the credential and FTC's does not; a 401 or 403 from any call means FIRST refused it. A season
-  // FIRST reports before its data is published can fail, so the previous season's summary also proves the credential.
-  const season = await currentSeason(db, program, now, get);
-  let reply = await get(firstSeasonUrl(program, season));
-  if (reply?.status !== 200) reply = await get(firstSeasonUrl(program, season - 1));
-  if (reply?.status !== 200) {
-    const answer = last as Reply;
-    const what = !answer ? "did not answer" : answer.status === 200 ? "gave an answer Guest Visits could not read" : `answered with HTTP ${answer.status}`;
-    throw new VisitsError(502, `FIRST's ${program} API ${what}, so the credential was not saved. Try again in a few minutes.`);
+export async function firstLookupStatus(db: D1Database, deps: VisitsDeps): Promise<FirstLookupStatus> {
+  await moveLegacyFirstCredentials(db, deps);
+  const status = await deps.first.status().catch(() => undefined);
+  const programs = { FRC: status?.FRC ? { available: status.FRC.available === true, checkedAt: status.FRC.checkedAt ?? null } : off, FTC: status?.FTC ? { available: status.FTC.available === true, checkedAt: status.FTC.checkedAt ?? null } : off };
+  const notMoved: FirstApiProgram[] = [];
+  for (const row of await legacyCredentials(db)) {
+    if (!isFirstApiProgram(row.program)) continue;
+    if (programs[row.program].available) await forget(db, row);
+    else notMoved.push(row.program);
   }
-  const encrypted = await deps.credentials.encrypt({ token });
-  await db.prepare("INSERT INTO visits_first_credentials(installation_id,program,username,ciphertext,iv,checked_at) VALUES(?,?,?,?,?,?) ON CONFLICT(installation_id,program) DO UPDATE SET username=excluded.username,ciphertext=excluded.ciphertext,iv=excluded.iv,checked_at=excluded.checked_at")
-    .bind(installationId, program, username, encrypted.ciphertext, encrypted.iv, iso(now)).run();
-  return ok(await firstApiStatus(db));
-}
-
-/** `DELETE /admin/visits/settings/first-api?program=`: forget the credential and FIRST's cached answers for that program. */
-export async function removeFirstCredential(db: D1Database, url: URL): Promise<RouteResult> {
-  const program = url.searchParams.get("program");
-  if (!isFirstApiProgram(program)) throw new VisitsError(400, "Choose FRC or FTC", "program");
-  await db.batch(["visits_first_credentials", "visits_first_teams", "visits_first_seasons"].map((table) => db.prepare(`DELETE FROM ${table} WHERE installation_id=? AND program=?`).bind(installationId, program)));
-  return ok(await firstApiStatus(db));
+  return { programs, notMoved };
 }

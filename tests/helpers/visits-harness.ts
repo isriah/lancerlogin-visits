@@ -1,12 +1,13 @@
 // Runs the Guest Visits Worker handlers the way Core does, without Core: an in-memory database with the plugin's
 // migration, Core's request context reduced to what the handlers use, a controlled clock, synthetic email and Discord
-// services that behave like Resend's idempotency keys and Discord's enforced nonces, and a synthetic Outreach behind
-// Core's cross-module calls, with an Admin's grant and staff members' own Outreach access. Synthetic data only.
+// services that behave like Resend's idempotency keys and Discord's enforced nonces, a synthetic Outreach behind Core's
+// cross-module calls, with an Admin's grant and staff members' own Outreach access, and a synthetic stand-in for Core's
+// shared FIRST connection. Synthetic data only; nothing reaches FIRST or any other network service.
 import { createTestDatabase, type TestDatabase } from "./d1.ts";
 import { civil, newYork } from "./civil-time.ts";
 import { processVisitsNotifications } from "../../src/api/visits-delivery.ts";
 import { visitsAdminRoute, visitsPublicRoute, visitsSetupRoute } from "../../src/api/visits-routes.ts";
-import type { VisitsCredentials, VisitsDeps, VisitsFetch, VisitsOutreachClient, VisitsRole } from "../../src/api/visits-runtime.ts";
+import type { VisitsDeps, VisitsFirst, VisitsFirstImport, VisitsLegacyFirstCredential, VisitsOutreachClient, VisitsRole } from "../../src/api/visits-runtime.ts";
 import { defaultSettingsSql } from "../../src/shared/visits-storage.ts";
 
 export const dashboardOrigin = "https://visits.example.org";
@@ -159,6 +160,61 @@ export class FakeOutreach {
   }
 }
 
+type CoreFirstProgram = "FRC" | "FTC" | "Challenge" | "Explore";
+const coreFirstPrograms: readonly CoreFirstProgram[] = ["FRC", "FTC", "Challenge", "Explore"];
+type Unavailable = "not-configured" | "rate-limited" | "timeout" | "provider-error";
+
+/**
+ * Core's shared FIRST connection as `services.first` hands it to Guest Visits, answering from a synthetic team list. A
+ * program answers "not-configured" until it has a credential (FLL Challenge and Explore never do here), and `failures`
+ * makes a program answer unavailable for another reason. `searchTeams` asks all four programs unless told which, like
+ * Core's. `importLegacyCredential` behaves like Core's: "unreadable" for a ciphertext Core cannot decrypt, "kept-existing"
+ * when the program already has a credential (an Admin's wins), otherwise the program takes it.
+ */
+export class FakeFirstConnection implements VisitsFirst {
+  readonly credentials = new Map<"FRC" | "FTC", { readonly username: string; readonly checkedAt: string }>();
+  /** Synthetic teams by `${program}:${number}`. */
+  readonly teams = new Map<string, { readonly name: string; readonly location: string }>();
+  readonly failures = new Map<CoreFirstProgram, Unavailable>();
+  /** Ciphertexts Core's integration key cannot decrypt. */
+  readonly unreadable = new Set<string>();
+  /** Set to make every call throw, as a Core that cannot answer would. */
+  broken: Error | null = null;
+  readonly searches: { number: string; programs: readonly string[] | undefined }[] = [];
+  readonly imports: VisitsLegacyFirstCredential[] = [];
+
+  team(program: CoreFirstProgram, number: string, name: string, location = "") { this.teams.set(`${program}:${number}`, { name, location }); }
+  configure(program: "FRC" | "FTC", username = "synthetic-admin", checkedAt = "2026-10-01T12:00:00.000Z") { this.credentials.set(program, { username, checkedAt }); }
+
+  async status() {
+    if (this.broken) throw this.broken;
+    const events = (program: "FRC" | "FTC") => this.credentials.has(program) ? { available: true, checkedAt: this.credentials.get(program)!.checkedAt } : { available: false, checkedAt: null };
+    return { FRC: events("FRC"), FTC: events("FTC"), Challenge: { available: false, checkedAt: null }, Explore: { available: false, checkedAt: null } };
+  }
+
+  async searchTeams(input: { readonly number: string; readonly programs?: readonly string[] }) {
+    if (this.broken) throw this.broken;
+    this.searches.push({ number: input.number, programs: input.programs });
+    if (!/^[1-9]\d{0,5}$/.test(input.number)) throw new CoreError(400, "Enter a team number of 1 to 6 digits");
+    const results = coreFirstPrograms.filter((program) => (input.programs ?? coreFirstPrograms).includes(program)).map((program) => {
+      const failure = this.failures.get(program) ?? (program === "FRC" || program === "FTC" ? (this.credentials.has(program) ? undefined : "not-configured") : "provider-error");
+      if (failure) return { program, status: "unavailable" as const, reason: failure };
+      const team = this.teams.get(`${program}:${input.number}`);
+      return team ? { program, status: "found" as const, team: { program, number: input.number, ...team, season: 2026, source: "events-api" as const } } : { program, status: "not-found" as const };
+    });
+    return { results, complete: results.every((result) => result.status !== "unavailable") };
+  }
+
+  async importLegacyCredential(input: VisitsLegacyFirstCredential) {
+    if (this.broken) throw this.broken;
+    this.imports.push(input);
+    if (this.unreadable.has(input.ciphertext)) return "unreadable" as const;
+    if (this.credentials.has(input.program)) return "kept-existing" as const;
+    this.configure(input.program, input.username, input.checkedAt);
+    return "imported" as const;
+  }
+}
+
 export type Call = { readonly status: number; readonly body: any };
 type CallOptions = { readonly body?: unknown; readonly origin?: string | null; readonly role?: VisitsRole | null; readonly userId?: string };
 
@@ -175,16 +231,13 @@ export function visitsHarness(start = Date.parse("2026-10-28T15:00:00.000Z")) {
   // Outreach is not installed until a test says so.
   const outreach = new FakeOutreach();
   outreach.ready = false;
-  // FIRST's team APIs and Core's credential encryption: unreachable and unavailable until a test replaces them.
-  const noKey = async (): Promise<never> => { throw new Error("Credential encryption is not configured"); };
-  const first: { fetch: VisitsFetch; credentials: VisitsCredentials } = {
-    fetch: async () => { throw new Error("FIRST is not reachable in tests"); },
-    credentials: { available: false, encrypt: noKey, decrypt: noKey },
-  };
+  // Core's FIRST connection, with no credential until a test saves one, and this harness's own isolate state.
+  const first = new FakeFirstConnection();
+  const firstImport: VisitsFirstImport = { settled: false };
   /** Guest requests and the job have no signed-in user; workspace and setup requests have the caller's role. */
   const depsFor = (grantOnly: boolean, role: VisitsRole | null): VisitsDeps => ({
     civil, timeZone: async () => newYork, now: () => clock.now, email, discord, outreach: outreach.access(grantOnly, role), dashboardOrigin,
-    credentials: first.credentials, fetch: (url, init) => first.fetch(url, init),
+    first, firstImport,
   });
   const deps = depsFor(true, null);
 
@@ -221,7 +274,7 @@ export function visitsHarness(start = Date.parse("2026-10-28T15:00:00.000Z")) {
   const count = (sql: string, ...values: unknown[]) => Number((db.rows<{ n: number }>(sql, ...values)[0] as { n: number }).n);
   /** One pass of the visits.notifications job. */
   const job = () => processVisitsNotifications(db as never, depsFor(true, null));
-  return { db, clock, email, discord, outreach, first, deps, depsFor, call, count, job };
+  return { db, clock, email, discord, outreach, first, firstImport, deps, depsFor, call, count, job };
 }
 
 /** Monday and Wednesday 18:00 to 21:00 from November 2 to December 18, 2026 (America/New_York). */

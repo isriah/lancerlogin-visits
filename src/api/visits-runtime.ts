@@ -1,5 +1,5 @@
 // What every Guest Visits Worker handler shares: the dependencies Core supplies (civil time, time zone, clock, email,
-// Discord, Outreach, credential encryption and fetch), the request context shape, errors with the field they are about,
+// Discord, Outreach and the FIRST connection), the request context shape, errors with the field they are about,
 // request parsing, SQL guards and the conversions between rows and the HTTP contract. Handlers take `(context, deps)` so
 // tests run them without Core: this file imports only type declarations from the module SDK, which are erased at run
 // time.
@@ -7,6 +7,7 @@ import type { D1Database, D1Statement } from "@lancerlogin/module-sdk/api";
 import type { LocalVisitTimes, StaffWindow } from "../shared/visits-api.ts";
 import type { Attention, AttentionReason, BookableWindow, BookingDetails, TeamIdentity, VisitProgram } from "../shared/visits-booking.ts";
 import type { StoredWindow, WindowStatus } from "../shared/visits-schedule.ts";
+import type { FirstSearchAnswer } from "../shared/visits-team-search.ts";
 import { installationId } from "../shared/visits-storage.ts";
 import { localMoment, type CivilTime, type Problem } from "../shared/visits-time.ts";
 
@@ -40,15 +41,24 @@ export type VisitsOutreachAccess = {
   providerStatus(error: unknown): number | undefined;
 };
 
-/** Core's credential encryption, for FIRST API tokens. Structurally the SDK's `services.credentials`. */
-export type VisitsCredentials = {
-  /** False where Core has no key to encrypt with. */
-  readonly available: boolean;
-  encrypt(value: Record<string, string>): Promise<{ readonly ciphertext: string; readonly iv: string }>;
-  decrypt(ciphertext: string, iv: string): Promise<Record<string, string>>;
+/** A Guest Visits FIRST credential as Core imports it: the token's ciphertext under the integration key, never the token. */
+export type VisitsLegacyFirstCredential = { readonly program: "FRC" | "FTC"; readonly username: string; readonly ciphertext: string; readonly iv: string; readonly checkedAt: string };
+/**
+ * Core's shared FIRST connection (module SDK 1.2.0), the parts Guest Visits uses. Structurally the SDK's
+ * `services.first`: Core holds the credentials, caches the answers and applies the request limits, including the
+ * per-visitor limit on public routes.
+ */
+export type VisitsFirst = {
+  status(): Promise<Readonly<Record<"FRC" | "FTC", { readonly available: boolean; readonly checkedAt: string | null }>>>;
+  searchTeams(input: { readonly number: string; readonly programs?: readonly ("FRC" | "FTC")[] }): Promise<{ readonly results: readonly FirstSearchAnswer[]; readonly complete: boolean }>;
+  /** Deprecated migration aid for Guest Visits only: Core takes the credential when it has none for that program. */
+  importLegacyCredential(input: VisitsLegacyFirstCredential): Promise<"imported" | "kept-existing" | "unreadable">;
 };
-/** The Worker's fetch, passed in so handlers never reach the network on their own. Only FIRST's team APIs are called. */
-export type VisitsFetch = (url: string, init: RequestInit) => Promise<Response>;
+/**
+ * Whether this Worker isolate has offered Guest Visits' saved FIRST credentials to Core yet. One object per isolate, so
+ * the offer runs once there rather than on every lookup; `running` lets concurrent requests share one offer.
+ */
+export type VisitsFirstImport = { settled: boolean; running?: Promise<void> };
 
 /** Everything a handler needs from Core besides the request, so tests can pass stand-ins and a controlled clock. */
 export type VisitsDeps = {
@@ -59,8 +69,8 @@ export type VisitsDeps = {
   readonly email: VisitsEmailService;
   readonly discord: VisitsDiscordService;
   readonly outreach: VisitsOutreachAccess;
-  readonly credentials: VisitsCredentials;
-  readonly fetch: VisitsFetch;
+  readonly first: VisitsFirst;
+  readonly firstImport: VisitsFirstImport;
   /** Where the dashboard is served, for manage links and the public origin check. */
   readonly dashboardOrigin: string | undefined;
 };

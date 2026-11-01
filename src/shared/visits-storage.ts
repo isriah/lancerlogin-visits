@@ -27,19 +27,29 @@ export const visitsPortableTables = Object.keys(visitsBackupColumns) as VisitsPo
 
 /**
  * Operational state a restore drops: every manage link (staff resend confirmations afterwards), guest submission keys,
- * the daily email counts, the FIRST API credentials (an Admin saves them again) and FIRST lookup caches and limits.
+ * the daily email counts, and FIRST credentials saved before team lookup moved to Core, which wait only to be moved.
  */
 export const visitsNonPortableTables = [
   "visits_manage_tokens", "visits_public_submission_keys", "visits_email_limits",
-  "visits_first_credentials", "visits_first_seasons", "visits_first_teams", "visits_first_requests",
+  "visits_first_credentials",
 ] as const;
 
-/** Every table, in the order the migrations create them. */
+/**
+ * Every table, in the order the migrations create them, without those a later migration dropped. Migration 0004 dropped
+ * visits_first_seasons, visits_first_teams and visits_first_requests: Core's FIRST connection keeps its own caches.
+ */
 export const visitsTables = [
   "visits_settings", "visits_availability_series", "visits_windows", "visits_teams", "visits_bookings", "visits_booking_revisions",
   "visits_manage_tokens", "visits_public_submission_keys", "visits_email_limits", "visits_notifications",
-  "visits_first_credentials", "visits_first_seasons", "visits_first_teams", "visits_first_requests",
+  "visits_first_credentials",
 ] as const;
+
+/** Tables a migration dropped, with the migration that dropped them. */
+export const visitsDroppedTables = {
+  visits_first_seasons: "0004_drop_first_caches.sql",
+  visits_first_teams: "0004_drop_first_caches.sql",
+  visits_first_requests: "0004_drop_first_caches.sql",
+} as const;
 
 /**
  * Columns a restore must neutralize: delivery state and leases, so pending work never revives on its own, and the copy of
@@ -56,7 +66,14 @@ export type VisitsCleanupStep =
   | { readonly kind: "assignments" };
 
 /**
- * Retained-data cleanup, child-first. Core stores progress by position: never reorder these steps, only append.
+ * A cleanup step kept only for its position. It deletes nothing (`where: "0"` matches no row of a table that always
+ * exists) and lets the deletion cursor move on, so a cursor Core recorded at or past it still lines up.
+ */
+const retiredCleanupStep = { kind: "delete", table: "visits_settings", where: "0" } as const satisfies VisitsCleanupStep;
+
+/**
+ * Retained-data cleanup, child-first. Core stores progress by position: never reorder or remove these steps, only append.
+ * A step whose table was dropped becomes `retiredCleanupStep` in place.
  */
 export const visitsCleanupSteps: readonly VisitsCleanupStep[] = [
   { kind: "delete", table: "visits_notifications" },
@@ -71,11 +88,12 @@ export const visitsCleanupSteps: readonly VisitsCleanupStep[] = [
   { kind: "delete", table: "visits_settings" },
   { kind: "delete", table: "platform_module_setup_progress", where: "module_id=?", bindings: [moduleId] },
   { kind: "assignments" },
-  // Appended for team lookup (migration 0002), after the original steps.
+  // Appended for team lookup (migration 0002), after the original steps. Migration 0004 dropped the tables of the last
+  // three (FIRST's cached answers, seasons and request counts), so they are retired in place.
   { kind: "delete", table: "visits_first_credentials" },
-  { kind: "delete", table: "visits_first_seasons" },
-  { kind: "delete", table: "visits_first_teams" },
-  { kind: "delete", table: "visits_first_requests" },
+  retiredCleanupStep,
+  retiredCleanupStep,
+  retiredCleanupStep,
 ];
 
 /** The manifest's cleanup targets for the steps above. */
@@ -83,7 +101,7 @@ export const visitsCleanupTargets = [
   "visits_notifications", "visits_manage_tokens", "visits_public_submission_keys", "visits_email_limits", "visits_booking_revisions",
   "visits_bookings", "visits_teams", "visits_windows", "visits_availability_series", "visits_settings",
   `platform_module_setup_progress:${moduleId}`, `platform_module_assignments:${moduleId}`,
-  "visits_first_credentials", "visits_first_seasons", "visits_first_teams", "visits_first_requests",
+  "visits_first_credentials", "retired:visits_first_seasons", "retired:visits_first_teams", "retired:visits_first_requests",
 ] as const;
 
 /** Cleanup waits while a notification is mid-send under a live lease. Binds the installation ID once. */

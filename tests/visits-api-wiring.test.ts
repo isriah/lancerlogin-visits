@@ -5,7 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { createTestDatabase } from "./helpers/d1.ts";
-import { dashboardOrigin, FakeDiscord, FakeEmail, shopSeries } from "./helpers/visits-harness.ts";
+import { dashboardOrigin, FakeDiscord, FakeEmail, FakeFirstConnection, shopSeries } from "./helpers/visits-harness.ts";
 import manifest from "../src/manifest.ts";
 import { visitsBackupColumns, visitsCleanupSteps } from "../src/shared/visits-storage.ts";
 
@@ -21,11 +21,11 @@ function database() {
 
 type Modules = { interface(id: string, version: number): Promise<unknown> };
 
-function context(db: ReturnType<typeof database>, method: string, path: string, body?: unknown, modules?: Modules) {
+function context(db: ReturnType<typeof database>, method: string, path: string, body?: unknown, modules?: Modules, first?: FakeFirstConnection) {
   const url = new URL(path, "https://api.example.org");
   const request = new Request(url, { method, headers: { origin: dashboardOrigin, ...(body === undefined ? {} : { "content-type": "application/json" }) }, body: body === undefined ? undefined : JSON.stringify(body) });
   return {
-    request, url, env: {}, db: db as never, services: { email: new FakeEmail(), discord: new FakeDiscord(), googleCalendar: {} as never, credentials: {} as never, ...(modules ? { modules } : {}) },
+    request, url, env: {}, db: db as never, services: { email: new FakeEmail(), discord: new FakeDiscord(), googleCalendar: {} as never, credentials: {} as never, ...(modules ? { modules } : {}), ...(first ? { first } : {}) },
     requireRole: async () => ({ userId: "user-1", role: "admin" as const }),
     json: async () => JSON.parse(await request.clone().text()), body: async () => method === "GET" ? undefined : JSON.parse(await request.text()),
     respond: (value: unknown, status = 200) => Response.json(value, { status }),
@@ -47,6 +47,23 @@ test("the contribution binds exactly the declared routes, setup steps, job, repo
   assert.equal(api.backup!.version, 2, "version 2: Require headcount and optional headcounts");
   assert.equal(typeof api.backup!.normalize, "function", "version 1 backups are converted on restore");
   assert.deepEqual(Object.keys(api.backup!.tables), [...manifest.backup.tables]);
+});
+
+// Runs before any other test reaches a route or the job: the isolate offers saved FIRST credentials to Core only once.
+test("the job moves FIRST credentials saved in Guest Visits to services.first, and team search asks it for FRC and FTC", async () => {
+  const db = database();
+  await db.batch(api.freshEnable!(db as never, { installationId: "primary", now: "2026-10-28T15:00:00.000Z" }) as never);
+  db.exec(`INSERT INTO visits_first_credentials VALUES('primary','FRC','synthetic-frc-user','synthetic-ciphertext-frc','synthetic-iv-frc','2026-09-15T18:30:00.000Z')`);
+  const first = new FakeFirstConnection();
+  first.team("FRC", "9001", "Test Team Alpha", "Testville, PA");
+  const services = context(db, "GET", "/", undefined, undefined, first).services;
+  await api.jobs!["visits.notifications"]!({ db: db as never, env: {}, services: services as never });
+  assert.deepEqual(first.imports.map((item) => [item.program, item.username, item.ciphertext]), [["FRC", "synthetic-frc-user", "synthetic-ciphertext-frc"]]);
+  assert.deepEqual(db.rows("SELECT program FROM visits_first_credentials"), [], "Core took it, so Guest Visits' copy is gone");
+  const response = await api.routes!["/public/visits"]!(context(db, "GET", "/public/visits/team-search?number=9001", undefined, undefined, first) as never);
+  assert.deepEqual(await response!.json(), { matches: [{ number: "9001", name: "Test Team Alpha", program: "FRC", location: "Testville, PA", source: "first" }], complete: false });
+  assert.deepEqual(first.searches, [{ number: "9001", programs: ["FRC", "FTC"] }]);
+  assert.equal(first.imports.length, 1, "offered once per isolate");
 });
 
 test("routes, the job and the report run through Core's context with the installation time zone", async () => {
@@ -95,21 +112,4 @@ test("Outreach is reached through services.modules with the declared interface; 
   assert.deepEqual(await status(), { available: false, granted: false });
   // Without services.modules (an older Core), Outreach is simply unavailable.
   assert.deepEqual((await (await api.routes!["/admin/visits"]!(context(db, "GET", "/admin/visits/status") as never))!.json() as { outreach: unknown }).outreach, { available: false, granted: false });
-});
-
-test("team search reaches FIRST through the Worker's fetch, with the token Core's credential service decrypts", async (t) => {
-  const db = database();
-  await db.batch(api.freshEnable!(db as never, { installationId: "primary", now: "2026-10-28T15:00:00.000Z" }) as never);
-  db.exec(`INSERT INTO visits_first_credentials VALUES('primary','FRC','lancers','{"token":"frc-token-0001"}','synthetic-iv','2026-10-28T15:00:00.000Z')`);
-  const asked: string[] = [];
-  t.mock.method(globalThis, "fetch", async (url: string, init: RequestInit) => {
-    asked.push(`${url} ${new Headers(init.headers).get("authorization")}`);
-    return Response.json(url.endsWith("/v3.0/") ? { currentSeason: 2026 } : { teams: [{ teamNumber: 321, nameShort: "Lancers", city: "Lansdale", stateProv: "Pennsylvania", country: "USA" }] });
-  });
-  const search = context(db, "GET", "/public/visits/team-search?number=321");
-  Object.assign(search.services, { credentials: { available: true, encrypt: async () => { throw new Error("Not used"); }, decrypt: async (ciphertext: string) => JSON.parse(ciphertext) } });
-  const response = await api.routes!["/public/visits"]!(search as never);
-  assert.deepEqual(await response!.json(), { matches: [{ number: "321", name: "Lancers", program: "FRC", location: "Lansdale, Pennsylvania", source: "first" }], complete: false });
-  const authorization = `Basic ${Buffer.from("lancers:frc-token-0001").toString("base64")}`;
-  assert.deepEqual(asked, [`https://frc-api.firstinspires.org/v3.0/ ${authorization}`, `https://frc-api.firstinspires.org/v3.0/2026/teams?teamNumber=321 ${authorization}`]);
 });
