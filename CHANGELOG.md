@@ -6,7 +6,7 @@ Add a `## [X.Y.Z] - YYYY-MM-DD` entry above older entries for each stable or bet
 
 ## [0.3.0] - Unreleased
 
-Team lookup runs on LancerLogin's shared FIRST connection (`services.first`): FRC and FTC credentials are saved in **Settings > Integrations > FIRST**, and those saved in Guest Visits move there on their own the first time the new release runs. Guests see no change. **Settings > Guest Visits > Team lookup** now shows whether lookup works and links to Settings > Integrations. Requires a Core with module SDK 1.2.0 (`lancerlogin.core` `>=2.1.0-beta.2 <3.0.0`, `@lancerlogin/module-sdk` `^1.2.0`). Adds migration 0004, which drops Guest Visits' FIRST caches. See [v0.3.0](docs/releases/v0.3.0.md).
+Team lookup runs on LancerLogin's shared FIRST connection (`services.first`): FRC and FTC credentials are saved in **Settings > Integrations > FIRST**, and those saved in Guest Visits move there on their own the first time the new release runs. Guests see no change. **Settings > Guest Visits > Team lookup** now shows whether lookup works and links to Settings > Integrations. Requires a Core with module SDK 1.2.0 (`lancerlogin.core` `>=2.1.0-beta.3 <3.0.0`, `@lancerlogin/module-sdk` `^1.2.0`). Adds migration 0004, which drops Guest Visits' FIRST caches. See [v0.3.0](docs/releases/v0.3.0.md).
 
 ## [0.2.1] - 2026-10-29
 
