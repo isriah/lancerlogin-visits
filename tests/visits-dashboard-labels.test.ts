@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { at, newYork } from "./helpers/civil-time.ts";
 import {
-  attentionNotes, bookingBadges, canMarkHandled, canRecordInOutreach, describeChange, emailStateBadges, historyActionText, historyActorText, historyNewestFirst,
+  attentionNotes, bookingBadges, canMarkHandled, firstLookupNotices, canRecordInOutreach, describeChange, emailStateBadges, historyActionText, historyActorText, historyNewestFirst,
   mergeTargets, outreachBadge, outreachRecordSummary, outreachResultText, programChoices, sortBookings, sortTeams, teamNeedsHelp, teamNeedsLabel, teamText,
 } from "../src/dashboard/visits-labels.ts";
 import type { BookingHistoryEntry, StaffBooking, StaffTeam } from "../src/shared/visits-api.ts";
@@ -131,4 +131,15 @@ test("Record in Outreach results read per visit and sum up with the visits that 
     tone: "error", text: "Outreach did not record 1 visit: FTC 8 Eights (Refused (409)). Not recorded: A visit.",
   });
   assert.deepEqual(outreachRecordSummary([], nameOf), { tone: "neutral", text: "Nothing was recorded." });
+});
+
+test("Team lookup settings say which programs Core looks up and which saved credentials could not be moved", () => {
+  const programs = (frc: boolean, ftc: boolean) => ({ FRC: { available: frc, checkedAt: frc ? "2026-10-01T12:00:00.000Z" : null }, FTC: { available: ftc, checkedAt: null } });
+  assert.deepEqual(firstLookupNotices({ programs: programs(true, true), notMoved: [] }), { lookup: { tone: "success", label: "On. Guests' FRC and FTC team numbers are looked up." }, notMoved: null });
+  assert.equal(firstLookupNotices({ programs: programs(true, false), notMoved: [] }).lookup.label, "On for FRC. FTC teams are entered by hand until an FTC credential is saved in Settings > Integrations > FIRST.");
+  const off = firstLookupNotices({ programs: programs(false, false), notMoved: ["FRC", "FTC"] });
+  assert.equal(off.lookup.tone, "neutral");
+  assert.match(off.lookup.label, /^Off\. /);
+  assert.deepEqual(off.notMoved, { tone: "warning", label: "The FRC and FTC credentials saved in Guest Visits could not be moved to Settings > Integrations > FIRST, because LancerLogin cannot read them. Save each username and token again there." });
+  assert.equal(firstLookupNotices({ programs: programs(false, true), notMoved: ["FRC"] }).notMoved?.label, "The FRC credential saved in Guest Visits could not be moved to Settings > Integrations > FIRST, because LancerLogin cannot read it. Save the FRC username and token again there.");
 });

@@ -10,7 +10,7 @@ import {
 } from "./visits-bookings.ts";
 import { bookingScopes, listStaffBookings, staffBookingDetail, type BookingScope } from "./visits-queries.ts";
 import { readSettings, sendTestEmail, setupStatus, updateSettings, visitsSettings, visitsStatus } from "./visits-settings.ts";
-import { firstApiStatus, removeFirstCredential, saveFirstCredential, searchTeams } from "./visits-team-search.ts";
+import { firstLookupStatus, searchTeams } from "./visits-team-search.ts";
 import { ok, pathId, readBody, respondTo, revisionOf, VisitsError, type RouteResult, type VisitsDeps, type VisitsRole, type VisitsRouteContext } from "./visits-runtime.ts";
 
 type Input = { readonly userId: string; readonly body: unknown; readonly url: URL; readonly origin: string | undefined };
@@ -102,9 +102,8 @@ function adminRoute(db: VisitsRouteContext["db"], deps: VisitsDeps, path: string
   if (first === "settings") {
     if (third !== undefined) return undefined;
     if (second === "test-email") return { roles: admin, methods: { POST: ({ body }) => sendTestEmail(db, deps, body) } };
-    return second === "first-api"
-      ? { roles: admin, methods: { GET: async () => ok(await firstApiStatus(db)), PUT: ({ body }) => saveFirstCredential(db, deps, body), DELETE: ({ url }) => removeFirstCredential(db, url) } }
-      : undefined;
+    // FIRST credentials live in Core's Settings > Integrations > FIRST; Guest Visits only reports whether lookup works.
+    return second === "first-api" ? { roles: admin, methods: { GET: async () => ok(await firstLookupStatus(db, deps)) } } : undefined;
   }
   const id = pathId(second);
   switch (`${first}/${third ?? ""}`) {

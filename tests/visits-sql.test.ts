@@ -413,3 +413,25 @@ test("a version 1 backup, made before headcount became optional, restores with R
   assert.deepEqual(target.rows("SELECT id, headcount FROM visits_bookings"), [{ id: "booking-1", headcount: 12 }]);
   assert.throws(() => normalizeVisitsBackup(exported, 3), RangeError, "a version it does not know is refused");
 });
+
+test("migration 0004 drops FIRST's cached answers, seasons and request counts and keeps saved credentials for the move to Core", async () => {
+  const db = createTestDatabase({ through: "0003_optional_headcount.sql" });
+  await populate(db);
+  db.exec(`INSERT INTO visits_first_credentials VALUES('primary','FRC','synthetic-frc-user','synthetic-ciphertext-frc','synthetic-iv-frc','2026-09-15T18:30:00.000Z');
+    INSERT INTO visits_first_seasons VALUES('primary','FRC',2026,1);
+    INSERT INTO visits_first_teams VALUES('primary','FRC','9001','Test Team Alpha','Testville, PA',1);
+    INSERT INTO visits_first_requests VALUES('primary','request-1',1);`);
+  const kept = visitsTables.map((table) => db.rows(`SELECT * FROM ${table}`));
+  applyMigration(db, migrationFiles().find((file) => file.name === "0004_drop_first_caches.sql")!);
+  const objects = db.rows<{ name: string }>("SELECT name FROM sqlite_master WHERE name LIKE 'visits_first%' ORDER BY name").map((row) => row.name);
+  assert.deepEqual(objects, ["visits_first_credentials"], "the cache tables and their indexes are gone");
+  assert.deepEqual(visitsTables.map((table) => db.rows(`SELECT * FROM ${table}`)), kept, "every other row stays, the saved credential too");
+  assert.deepEqual(db.rows("PRAGMA foreign_key_check"), []);
+  // The retired cleanup steps still run, and delete nothing.
+  db.exec("CREATE TABLE platform_module_setup_progress (installation_id TEXT NOT NULL, module_id TEXT NOT NULL, step_id TEXT NOT NULL)");
+  for (const step of visitsCleanupSteps.slice(-3)) {
+    assert.ok(step.kind === "delete" && step.where === "0");
+    assert.equal((await db.prepare(`DELETE FROM ${step.table} WHERE installation_id=? AND (${step.where})`).bind("primary").run()).meta.changes, 0);
+  }
+  assert.equal(db.rows("SELECT 1 FROM visits_settings").length, 1);
+});

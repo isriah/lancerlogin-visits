@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import manifest from "../src/manifest.ts";
 import {
-  visitsBackupColumns, visitsBackupVersion, visitsCleanupSteps, visitsCleanupTargets, visitsNonPortableTables, visitsPortableTables, visitsTables, visitsTransientAuthority,
+  visitsBackupColumns, visitsBackupVersion, visitsCleanupSteps, visitsCleanupTargets, visitsDroppedTables, visitsNonPortableTables, visitsPortableTables, visitsTables, visitsTransientAuthority,
 } from "../src/shared/visits-storage.ts";
 
 const root = new URL("../", import.meta.url);
@@ -34,8 +34,12 @@ test("routes, navigation and settings live under the module's own namespace", ()
 });
 
 test("every table is prefixed, declared and classified for backup and cleanup", () => {
-  const sql = readdirSync(new URL("migrations/", root)).filter((name) => name.endsWith(".sql")).map((name) => read(`migrations/${name}`)).join("\n");
-  const created = [...sql.matchAll(/CREATE TABLE (\w+)/g)].map((match) => match[1]);
+  const files = readdirSync(new URL("migrations/", root)).filter((name) => name.endsWith(".sql")).sort();
+  const statements = (name: string) => read(`migrations/${name}`).replace(/--.*$/gm, "");
+  // Every dropped table is declared with the migration that drops it, and no longer counts as one of the module's tables.
+  const dropped = files.flatMap((name) => [...statements(name).matchAll(/DROP TABLE (\w+)/g)].map((match) => [match[1]!, name]));
+  assert.deepEqual(Object.fromEntries(dropped), visitsDroppedTables);
+  const created = files.flatMap((name) => [...statements(name).matchAll(/CREATE TABLE (\w+)/g)].map((match) => match[1])).filter((table) => !Object.hasOwn(visitsDroppedTables, table!));
   assert.deepEqual(created, [...manifest.persistence.tables]);
   assert.deepEqual(created, [...visitsTables]);
   for (const table of created) {
@@ -54,8 +58,14 @@ test("every table is prefixed, declared and classified for backup and cleanup", 
 });
 
 test("cleanup steps cover every table and the module's setup progress and assignments, in target order", () => {
-  const targets = visitsCleanupSteps.map((step) => step.kind === "assignments" ? `platform_module_assignments:${manifest.id}` : step.table === "platform_module_setup_progress" ? `${step.table}:${manifest.id}` : step.table);
-  assert.deepEqual(targets, [...visitsCleanupTargets]);
+  // A retired step keeps a dropped table's position and deletes nothing, from a table that always exists.
+  const retired = (step: (typeof visitsCleanupSteps)[number]) => step.kind === "delete" && step.table === "visits_settings" && step.where === "0";
+  const targets = visitsCleanupSteps.map((step) => step.kind === "assignments" ? `platform_module_assignments:${manifest.id}` : step.table === "platform_module_setup_progress" ? `${step.table}:${manifest.id}` : retired(step) ? "retired" : step.table);
+  assert.deepEqual(targets, visitsCleanupTargets.map((target) => target.startsWith("retired:") ? "retired" : target));
+  // Positions never move: 0.2.x had 16 steps, and the three for the tables migration 0004 dropped are retired in place.
+  assert.equal(visitsCleanupSteps.length, 16);
+  assert.deepEqual(visitsCleanupTargets.slice(-4), ["visits_first_credentials", "retired:visits_first_seasons", "retired:visits_first_teams", "retired:visits_first_requests"]);
+  assert.deepEqual(visitsCleanupTargets.filter((target) => target.startsWith("retired:")).map((target) => target.slice("retired:".length)).sort(), Object.keys(visitsDroppedTables).sort());
   const setupStep = visitsCleanupSteps.find((step) => step.kind === "delete" && step.table === "platform_module_setup_progress");
   assert.deepEqual(setupStep, { kind: "delete", table: "platform_module_setup_progress", where: "module_id=?", bindings: ["visits"] });
 });

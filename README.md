@@ -6,7 +6,7 @@ This repository is a LancerLogin module plugin: module ID `visits`, table prefix
 
 ## Requirements
 
-- **LancerLogin Core with module SDK 1.1.0.** Guest Visits uses Core's email service, the installation time zone, public sub-pages (`/visit/manage`) and cross-module calls, which arrive together in module SDK 1.1.0. Composition refuses the plugin on a Core without them. See [Compatibility](#compatibility).
+- **LancerLogin Core with module SDK 1.2.0.** Guest Visits uses Core's email service, the installation time zone, public sub-pages (`/visit/manage`) and cross-module calls from module SDK 1.1.0, and Core's shared FIRST connection (`services.first`) from module SDK 1.2.0. Composition refuses the plugin on a Core without them. See [Compatibility](#compatibility).
 - **Resend, enabled and verified** in **Settings > Integrations**. Every confirmation goes through Core's Resend connection and its From address; Guest Visits never holds Resend credentials. Setup cannot finish until a test email has been sent.
 - **Discord (optional).** For booking messages and the weekly summary, connect the Discord bot in **Settings > Integrations**, then turn on Guest Visits messages and enter a channel ID in **Settings > Guest Visits**.
 - **Outreach (optional).** To record visits as Outreach Team Support, the official Outreach plugin must be installed, enabled and set up, in a version that offers its team support interface (`hour-tracking.team-support` version 1). To record every booking automatically, an Admin grants Guest Visits access in **Settings > Modules > Module access**. Without a grant, staff who can use Outreach themselves can still record visits with **Record in Outreach**. Guest Visits sends Outreach the guest team and the visit's date only, never a headcount, so a visit without one records the same way.
@@ -55,12 +55,13 @@ With Discord messages on, Guest Visits posts one message per booking, change and
 
 ## Team lookup
 
-When a guest enters a team number, Guest Visits looks it up in FIRST's FRC and FTC team lists (the current season, then the previous one) and in this installation's saved guest teams, so the guest page can fill in the program and team name. FIRST LEGO League teams, and programs without a credential, are entered by hand.
+When a guest enters a team number, Guest Visits looks it up in FIRST's FRC and FTC team lists through LancerLogin's shared FIRST connection (`services.first`, module SDK 1.2.0), and in this installation's saved guest teams, so the guest page can fill in the program and team name. FIRST LEGO League teams, and programs LancerLogin cannot look up, are entered by hand.
 
-- **Credentials:** an Admin registers for FIRST's Events API ([FRC](https://frc-events.firstinspires.org/services/API), [FTC](https://ftc-events.firstinspires.org/services/API)) and enters each program's username and token in **Settings > Guest Visits > Team lookup**. Saving checks them with FIRST first. The token is encrypted with Core's credential service, stored only as ciphertext and never shown again; saving needs Core's credential encryption to be configured.
-- **What FIRST receives:** the team number, with the installation's FIRST credential. Never guest names, contact details or anything else from a booking.
-- **Caching and limits:** FIRST's answers, "no team" included, are kept for seven days, and each program's current season for a day. At most 30 requests go to FIRST per minute, each given up after 4 seconds; past the limit, or when FIRST fails, a lookup answers from the cache and saved teams only, and the guest can enter the team by hand.
-- **Data:** credentials and cached answers are never in backups (an Admin saves the credentials again after a restore) and are deleted with the rest of Guest Visits data. Removing a credential also forgets that program's cached answers.
+- **Credentials:** an Admin saves the FRC and FTC Events API usernames and tokens in **Settings > Integrations > FIRST**, which every module that looks up FIRST teams shares. Guest Visits never sees a token. **Settings > Guest Visits > Team lookup** shows whether FRC and FTC lookup works and links there.
+- **What FIRST receives:** the team number only, sent by Core with its credential. Never guest names, contact details or anything else from a booking. Guest Visits asks for FRC and FTC only.
+- **Caching and limits:** Core caches FIRST's answers and applies its request limits, including a per-visitor limit on the guest page. When a program cannot answer (no credential, a limit, a timeout or a FIRST failure), the search says it is incomplete and the guest can enter the team by hand.
+- **Moving from Guest Visits 0.2.x:** credentials saved in Guest Visits before 0.3.0 move to **Settings > Integrations > FIRST** on their own. Each Worker isolate offers them to Core once, on its first team search, Team lookup settings read or notification job pass (`importLegacyCredential`). Core takes a credential for a program it has none for, and keeps an Admin's own credential otherwise; either way Guest Visits then deletes its copy. A credential Core cannot read with its integration key stays until Core has a working credential of its own for that program, and Team lookup settings ask the Admin to save it again there. Migration 0004 drops Guest Visits' own FIRST caches; `visits_first_credentials` stays until a later release, so the credentials outlive the migration that runs before the new code.
+- **Data:** credentials waiting to move are never in backups and are deleted with the rest of Guest Visits data. Core's FIRST credentials are part of Core's own backups.
 
 ## Privacy and data
 
@@ -76,7 +77,8 @@ When a guest enters a team number, Guest Visits looks it up in FIRST's FRC and F
 
 | Plugin | LancerLogin Core | Module SDK | Module contract |
 | --- | --- | --- | --- |
-| 0.1.x | `>=2.0.0-beta.15 <3.0.0` (Modular 2.0.0-beta.15, the first Core with module SDK 1.1.0, and later 2.x releases) | `^1.1.0` | 1 |
+| 0.3.x | `>=2.1.0-beta.3 <3.0.0`, with module SDK 1.2.0 (the first Core with `services.first`) | `^1.2.0` | 1 |
+| 0.1.x, 0.2.x | `>=2.0.0-beta.15 <3.0.0` (Modular 2.0.0-beta.15, the first Core with module SDK 1.1.0, and later 2.x releases) | `^1.1.0` | 1 |
 
 The supported Core range is the `lancerlogin.core` field in `package.json`, and the module SDK peer range declares the SDK features Guest Visits needs. Composition refuses the plugin for a Core outside that range or with an older SDK, before an installation build or web update starts. React and `@lancerlogin/module-sdk` are peer dependencies provided by Core. Recording in Outreach also needs an Outreach release with the `hour-tracking.team-support` interface.
 
@@ -94,8 +96,8 @@ The supported Core range is the `lancerlogin.core` field in `package.json`, and 
 | `src/shared/visits-api.ts` | The HTTP contract between the dashboard and the Worker routes |
 | `src/shared/visits-*.ts` | Import-free rules shared by the Worker, the dashboard and the tests: time zones, availability, booking, tokens, email and Discord text, weekly summary, email cap, notification queue, Outreach answers, report fields and storage declarations |
 | `src/visits.css` | Styles, each rule scoped to the Guest Visits module root |
-| `migrations/` | `0001_create_visits_tables.sql`, `0002_create_visits_first_tables.sql` (team lookup credentials, caches and limit) and `reviewed.json` with their SHA-256 |
-| `tests/` | `npm test`: unit, SQL and route tests, with an Intl stand-in for the SDK's civil-time helpers, a D1-shaped adapter over Node's built-in SQLite and synthetic email, Discord and Outreach in `tests/helpers/` |
+| `migrations/` | `0001_create_visits_tables.sql`, `0002_create_visits_first_tables.sql` (team lookup credentials, caches and limit), `0003_optional_headcount.sql`, `0004_drop_first_caches.sql` (drops the FIRST caches now kept by Core) and `reviewed.json` with their SHA-256 |
+| `tests/` | `npm test`: unit, SQL and route tests, with an Intl stand-in for the SDK's civil-time helpers, a D1-shaped adapter over Node's built-in SQLite and synthetic email, Discord, Outreach and FIRST connection in `tests/helpers/` |
 | `scripts/verify-with-core.mjs` | Composes this commit into a Core checkout, then typechecks and builds it |
 | `scripts/plugin-release.mjs`, `scripts/release-policy.mjs` | Release, nightly and version rules, the same as the official plugins |
 | `.github/plugin-release.json` | Repository, release title and pinned Core |
@@ -107,7 +109,7 @@ Times are stored as instants and entered in the installation time zone. On days 
 
 Work needs Node 24 and, for anything beyond the unit tests, a LancerLogin Core checkout with module SDK 1.1.0 and `npm ci` done there.
 
-- **`npm test`** runs without installed packages or Core: logic tests for every `src/shared` module (including daylight saving changes in America/New_York), SQL tests that apply the migration to an in-memory `node:sqlite` database (constraints, triggers, uniqueness, cascades, leases, cleanup order and a backup round trip), the Worker routes with synthetic email, Discord and Outreach and a controlled clock, the dashboard's form and label helpers, the package check that the manifest, `package.json`, the storage declarations and `migrations/reviewed.json` agree, a check that authored text uses no em or en dashes, and the release policy tests.
+- **`npm test`** runs without installed packages or Core: logic tests for every `src/shared` module (including daylight saving changes in America/New_York), SQL tests that apply the migration to an in-memory `node:sqlite` database (constraints, triggers, uniqueness, cascades, leases, cleanup order and a backup round trip), the Worker routes with synthetic email, Discord, Outreach and FIRST connection and a controlled clock, the dashboard's form and label helpers, the package check that the manifest, `package.json`, the storage declarations and `migrations/reviewed.json` agree, a check that authored text uses no em or en dashes, and the release policy tests.
 - **`npm run verify:core -- ../LancerLogin`** composes the committed plugin (commit first; it refuses a dirty tree) into a Core checkout with Core's official plugins, typechecks and builds the composed Worker and dashboard, then restores Core's generated files. Add `--mode fast` to compose and typecheck only.
 - **`npm run plugins:dev -- --plugin ../lancerlogin-visits`**, run from the Core checkout, composes this folder with Core's official plugins and starts a local Worker and dashboard that recompose when a file changes. Use synthetic data and test credentials only. Stop it with Ctrl+C, or run `npm run plugins:dev -- --restore` to put Core's generated files back.
 
@@ -117,7 +119,7 @@ Rules Core enforces when it composes the plugin: plugin code imports only `@lanc
 
 ## Continuous integration
 
-**Verify** (`.github/workflows/ci.yml`) runs on every push to `main`, every pull request and on demand. It runs `npm test`, checks out the LancerLogin Core commit pinned in `.github/plugin-release.json` from the public [isriah/LancerLogin](https://github.com/isriah/LancerLogin) repository, composes this plugin commit into it with Core's official plugins, and typechecks and builds the composed Worker and dashboard. The pin is currently Modular `v2.0.0-beta.16`, recorded by its full commit SHA with the tag beside it for people; it must name a published Core release inside the supported range (see [Compatibility](#compatibility)).
+**Verify** (`.github/workflows/ci.yml`) runs on every push to `main`, every pull request and on demand. It runs `npm test`, checks out the LancerLogin Core commit pinned in `.github/plugin-release.json` from the public [isriah/LancerLogin](https://github.com/isriah/LancerLogin) repository, composes this plugin commit into it with Core's official plugins, and typechecks and builds the composed Worker and dashboard. The pin is currently Core `v2.1.0-beta.3`, recorded by its full commit SHA with the tag beside it for people; it must name a published Core release inside the supported range (see [Compatibility](#compatibility)).
 
 No repository secrets are needed. Two optional secrets are used only when set, for a Core pin that is private: `LANCERLOGIN_CORE_TOKEN` (Contents: read on that Core repository) and `LANCERLOGIN_PLUGIN_TOKEN` (read access to private plugin repositories that Core composes).
 

@@ -1,8 +1,8 @@
-// Plain-language labels for the staff workspace: email and Outreach states, why a visit needs attention, change history
-// and guest team lists. Plain functions over src/shared, so `npm test` covers them without React.
+// Plain-language labels for the staff workspace: email and Outreach states, why a visit needs attention, change history,
+// guest team lists and whether team lookup works. Plain functions over src/shared, so `npm test` covers them without React.
 import type { AttentionReason, FieldChange, TeamIdentity } from "../shared/visits-booking.ts";
 import { programLabels, programShortLabels, visitPrograms, type VisitProgram } from "../shared/visits-booking.ts";
-import type { BookingHistoryEntry, EmailState, OutreachRecordResult, StaffBooking, StaffTeam } from "../shared/visits-api.ts";
+import type { BookingHistoryEntry, EmailState, FirstApiProgram, FirstLookupStatus, OutreachRecordResult, StaffBooking, StaffTeam } from "../shared/visits-api.ts";
 import { formatInstant, headcountText } from "./visits-local.ts";
 
 /** Tones match Core's `ui-status` data-tone values. */
@@ -196,4 +196,26 @@ export function mergeTargets(teams: readonly StaffTeam[], team: Pick<StaffTeam, 
 export function sortBookings<Booking extends Pick<StaffBooking, "arrivalMs" | "departureMs">>(bookings: readonly Booking[], scope: "upcoming" | "past" | "removed" | "attention"): Booking[] {
   const direction = scope === "past" || scope === "removed" ? -1 : 1;
   return [...bookings].sort((left, right) => direction * (left.arrivalMs - right.arrivalMs || left.departureMs - right.departureMs));
+}
+
+const joinPrograms = (programs: readonly FirstApiProgram[]) => programs.join(" and ");
+
+/**
+ * Settings > Guest Visits > Team lookup: which programs Core's FIRST connection looks up now, and a warning for each
+ * credential saved in Guest Visits that Core could not read, so it was not moved.
+ */
+export function firstLookupNotices(status: FirstLookupStatus): { readonly lookup: Badge; readonly notMoved: Badge | null } {
+  const on = (["FRC", "FTC"] as const).filter((program) => status.programs[program].available);
+  const off = (["FRC", "FTC"] as const).filter((program) => !status.programs[program].available);
+  const lookup: Badge = !on.length
+    ? { tone: "neutral", label: "Off. No working FRC or FTC credential is saved in Settings > Integrations > FIRST, so guests enter their program and team name by hand." }
+    : !off.length
+      ? { tone: "success", label: "On. Guests' FRC and FTC team numbers are looked up." }
+      : { tone: "neutral", label: `On for ${joinPrograms(on)}. ${joinPrograms(off)} teams are entered by hand until an ${joinPrograms(off)} credential is saved in Settings > Integrations > FIRST.` };
+  const notMoved: Badge | null = status.notMoved.length
+    ? status.notMoved.length === 1
+      ? { tone: "warning", label: `The ${status.notMoved[0]} credential saved in Guest Visits could not be moved to Settings > Integrations > FIRST, because LancerLogin cannot read it. Save the ${status.notMoved[0]} username and token again there.` }
+      : { tone: "warning", label: `The ${joinPrograms(status.notMoved)} credentials saved in Guest Visits could not be moved to Settings > Integrations > FIRST, because LancerLogin cannot read them. Save each username and token again there.` }
+    : null;
+  return { lookup, notMoved };
 }

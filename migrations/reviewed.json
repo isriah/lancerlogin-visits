@@ -10,5 +10,9 @@
   {
     "name": "0003_optional_headcount.sql",
     "sha256": "892efcc77ae505c699913cc8119e63dcde736a94df1cef859d97e502e30e08af"
+  },
+  {
+    "name": "0004_drop_first_caches.sql",
+    "sha256": "613de61a3374924f83915608e540fdbff4835d0fe0dc8bcb960191f0aab9d3f8"
   }
 ]

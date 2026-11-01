@@ -86,8 +86,8 @@ export const adminVisitsRoutes = {
   /** POST `{ to }`: Admin only. */
   settingsTestEmail: "/admin/visits/settings/test-email",
   /**
-   * GET: `FirstApiStatus`. PUT `FirstApiCredentialRequest`: check the credential with FIRST, then save it encrypted.
-   * DELETE `?program=FRC|FTC`: forget it. Admin only.
+   * GET: `FirstLookupStatus`, whether Core's FIRST connection can look up FRC and FTC teams. Admins manage the credentials
+   * in Core's Settings > Integrations > FIRST. Admin only.
    */
   firstApi: "/admin/visits/settings/first-api",
 } as const;
@@ -113,15 +113,22 @@ export type PublicTeamSearch = {
   /** Distinct by program: FIRST's name wins over a saved guest team's, FRC first, then FTC, then the rest. */
   readonly matches: readonly TeamMatch[];
   /**
-   * False when FIRST was not asked for every program it covers (no credential for a program, a provider failure or the
-   * lookup limit), so a missing match may only mean "unknown"; the guest can still enter the team by hand.
+   * False when Core's FIRST connection could not answer for FRC and FTC both (no credential for a program, a provider
+   * failure or a lookup limit), so a missing match may only mean "unknown"; the guest can still enter the team by hand.
    */
   readonly complete: boolean;
 };
-/** The programs FIRST's APIs can look up. FIRST LEGO League teams are entered by hand. */
+/** The programs Guest Visits looks up in FIRST's team lists. FIRST LEGO League teams are entered by hand. */
 export type FirstApiProgram = "FRC" | "FTC";
-export type FirstApiStatus = { readonly [Program in FirstApiProgram]: { readonly configured: boolean; readonly username: string; readonly checkedAt: string | null } };
-export type FirstApiCredentialRequest = { readonly program: FirstApiProgram; readonly username: string; readonly token: string };
+export type FirstLookupStatus = {
+  /** Per program: whether Core can look teams up now, and when FIRST last accepted its credential. */
+  readonly programs: { readonly [Program in FirstApiProgram]: { readonly available: boolean; readonly checkedAt: string | null } };
+  /**
+   * Programs whose credential, saved in Guest Visits before team lookup moved to Core, could not be moved because Core
+   * cannot read it, while Core has no working credential of its own for them. An Admin saves that program again in Core.
+   */
+  readonly notMoved: readonly FirstApiProgram[];
+};
 export type PublicBookingRequest = {
   readonly teamNumber: string;
   readonly teamName: string;
