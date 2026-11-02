@@ -122,6 +122,8 @@ Rules Core enforces when it composes the plugin: plugin code imports only `@lanc
 
 **Verify** (`.github/workflows/ci.yml`) runs on every push to `main`, every pull request and on demand. It runs `npm test`, checks out the LancerLogin Core commit pinned in `.github/plugin-release.json` from the public [isriah/LancerLogin](https://github.com/isriah/LancerLogin) repository, composes this plugin commit into it with Core's official plugins, and typechecks and builds the composed Worker and dashboard. The pin is currently Core `v2.1.0-beta.4`, recorded by its full commit SHA with the tag beside it for people; it must name a published Core release inside the supported range (see [Compatibility](#compatibility)).
 
+Verify also runs a second, non-blocking entry, **verify against Core main**: the same checks with this commit composed into the `main` branch of that Core repository. It shows a change in Core that breaks this plugin before the pin moves. Core main can change without this plugin changing, so a failure there doesn't block pull requests, releases or nightly builds (they require the pinned `verify` job), but it is a warning to act on: fix the plugin, or report the Core change.
+
 No repository secrets are needed. Two optional secrets are used only when set, for a Core pin that is private: `LANCERLOGIN_CORE_TOKEN` (Contents: read on that Core repository) and `LANCERLOGIN_PLUGIN_TOKEN` (read access to private plugin repositories that Core composes).
 
 ## Releasing
