@@ -54,7 +54,7 @@ test("a guest booking is validated and normalized", () => {
 test("a booking without an email address or with bad fields is refused with the field to fix", () => {
   const cases: [Record<string, unknown>, string][] = [
     [{ contactEmail: undefined }, "contactEmail"], [{ contactEmail: "" }, "contactEmail"], [{ contactEmail: "pat at example" }, "contactEmail"],
-    [{ contactEmail: "Pat <pat@example.org>" }, "contactEmail"], [{ contactEmail: "a@b.org, c@d.org" }, "contactEmail"],
+    [{ contactEmail: "Pat <pat@example.org>" }, "contactEmail"], [{ contactEmail: "a@example.test, c@example.test" }, "contactEmail"],
     [{ program: "FLL" }, "program"], [{ program: "frc" }, "program"], [{ teamNumber: "" }, "teamNumber"], [{ teamNumber: "12a" }, "teamNumber"],
     [{ teamNumber: "1234567" }, "teamNumber"], [{ teamName: "  " }, "teamName"], [{ teamName: "x".repeat(101) }, "teamName"], [{ contactName: "" }, "contactName"],
     [{ contactPhone: "call me" }, "contactPhone"], [{ contactPhone: "12345" }, "contactPhone"], [{ date: "2026-11-31" }, "date"], [{ arrival: "6:30 PM" }, "arrival"],
@@ -69,7 +69,7 @@ test("a booking without an email address or with bad fields is refused with the 
 });
 
 test("team numbers are normalized per program", () => {
-  assert.deepEqual(parseTeamNumber("0321", "FRC"), { ok: true, value: "321" });
+  assert.deepEqual(parseTeamNumber("099921", "FRC"), { ok: true, value: "99921" });
   assert.deepEqual(parseTeamNumber(16072, "FTC"), { ok: true, value: "16072" });
   assert.deepEqual(parseTeamNumber("#45", "Explore"), { ok: true, value: "45" });
   assert.deepEqual(parseTeamNumber(" 99x-b ", "Other"), { ok: true, value: "99X-B" });
@@ -77,7 +77,7 @@ test("team numbers are normalized per program", () => {
 });
 
 test("contact fields accept common forms", () => {
-  for (const email of ["pat@example.org", "first.last+visits@mail.example.co.uk", "o'neil@example.com"]) assert.ok(parseEmail(email).ok, email);
+  for (const email of ["pat@example.org", "first.last+visits@mail.example.test", "o'neil@example.com"]) assert.ok(parseEmail(email).ok, email);
   for (const phone of ["555-010-0199", "+1 (555) 010-0199", "555.010.0199", "+44 20 7946 0958"]) assert.ok(parsePhone(phone).ok, phone);
   assert.deepEqual(parsePhone("   "), { ok: true, value: "" });
   assert.deepEqual(parseHeadcount("8"), { ok: true, value: 8 });

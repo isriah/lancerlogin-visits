@@ -12,7 +12,7 @@ const manage = (harness: Harness, path: string, body: unknown, origin: string | 
 test("a guest books a visit: one batch saves it, and the confirmation email goes out at once with a manage link", async () => {
   const harness = visitsHarness();
   await withShopSeries(harness);
-  const request = bookingRequest({ teamNumber: "0321", teamName: "  Lancers ", note: "Bring safety glasses" });
+  const request = bookingRequest({ teamNumber: "099921", teamName: "  Test Team Alpha ", note: "Bring safety glasses" });
   const response = await harness.call("POST", "/public/visits/bookings", { body: request, role: null });
   assert.equal(response.status, 201);
   assert.deepEqual(response.body, {
@@ -22,8 +22,8 @@ test("a guest books a visit: one batch saves it, and the confirmation email goes
   // The booking page never receives the manage link.
   assert.doesNotMatch(JSON.stringify(response.body), /manage|token/i);
   const booking = harness.db.rows<Record<string, unknown>>("SELECT b.*, t.number, t.name FROM visits_bookings b JOIN visits_teams t ON t.id=b.team_id")[0]!;
-  assert.equal(booking.number, "321");
-  assert.equal(booking.name, "Lancers");
+  assert.equal(booking.number, "99921");
+  assert.equal(booking.name, "Test Team Alpha");
   assert.equal(booking.status, "booked");
   assert.equal(booking.revision, 0);
   assert.deepEqual(harness.db.rows("SELECT revision, action, actor_kind FROM visits_booking_revisions").map((row) => ({ ...row })), [{ revision: 0, action: "created", actor_kind: "guest" }]);
