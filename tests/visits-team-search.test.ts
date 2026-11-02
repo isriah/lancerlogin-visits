@@ -23,14 +23,17 @@ function saveLegacyCredential(harness: Harness, program: "FRC" | "FTC", username
 }
 const legacyPrograms = (harness: Harness) => harness.db.rows<{ program: string }>("SELECT program FROM visits_first_credentials ORDER BY program").map((row) => row.program);
 
-test("Core's answers become FRC and FTC matches; other programs and nameless teams are ignored", () => {
+test("Core's answers become FRC, FTC, FLL Challenge and FLL Explore matches; other programs and nameless teams are ignored", () => {
   const team = (name: unknown, location: unknown = "Testville, PA") => ({ program: "FRC", number: "9001", name, location, season: 2026, source: "events-api" });
   assert.deepEqual(firstMatchesOf([
     { program: "FRC", status: "found", team: team("Test Team Alpha") },
     { program: "FTC", status: "not-found" },
-    { program: "Challenge", status: "found", team: team("Test Lego Team") },
+    { program: "Challenge", status: "found", team: team("Test Lego Team", "Sampleton, OH") },
     { program: "Explore", status: "unavailable" },
-  ], "9001"), [match("FRC", "9001", "Test Team Alpha", "Testville, PA")]);
+    { program: "Other", status: "found", team: team("Test Club") },
+    { program: "FLL", status: "found", team: team("Test Wrong Code") },
+  ], "9001"), [match("FRC", "9001", "Test Team Alpha", "Testville, PA"), match("Challenge", "9001", "Test Lego Team", "Sampleton, OH")]);
+  assert.deepEqual(firstMatchesOf([{ program: "Explore", status: "found", team: team("Test Explore Team", "") }], "45"), [match("Explore", "45", "Test Explore Team")]);
   assert.deepEqual(firstMatchesOf([{ program: "FTC", status: "found", team: team("  ") }, { program: "FRC", status: "found", team: team("Test Team Beta", null) }] as never, "9001"), [match("FRC", "9001", "Test Team Beta")]);
 });
 
@@ -42,7 +45,7 @@ test("matches are one per program, FIRST's over a saved team's, in the order FRC
   assert.deepEqual(merged.map((item) => [item.program, item.name, item.source]), [["FRC", "Test Team Alpha", "first"], ["FTC", "Test Team Beta", "first"], ["Challenge", "Test Lego Team", "saved"], ["Other", "Test Club", "saved"]]);
 });
 
-test("without a credential in Core a search answers saved teams only, incomplete, and asks Core for FRC and FTC only", async () => {
+test("without a credential in Core a search answers FLL and saved teams, incomplete, and asks Core for every program but Other", async () => {
   const harness = visitsHarness();
   saveTeam(harness, "team-1", "FRC", "9001", "Saved Test Team");
   saveTeam(harness, "team-2", "Challenge", "9001", "Test Lego Team");
@@ -50,7 +53,7 @@ test("without a credential in Core a search answers saved teams only, incomplete
   const found = await search(harness, "09001");
   assert.equal(found.status, 200);
   assert.deepEqual(found.body, { matches: [match("FRC", "9001", "Saved Test Team", "", "saved"), match("Challenge", "9001", "Test Lego Team", "", "saved")], complete: false });
-  assert.deepEqual(harness.first.searches, [{ number: "9001", programs: ["FRC", "FTC"] }]);
+  assert.deepEqual(harness.first.searches, [{ number: "9001", programs: ["FRC", "FTC", "Challenge", "Explore"] }]);
   for (const number of ["", "abc", "12a", "1234567", "0"]) {
     const refused = await search(harness, number);
     assert.equal(refused.status, 400, number);
@@ -59,7 +62,7 @@ test("without a credential in Core a search answers saved teams only, incomplete
   assert.equal(harness.first.searches.length, 1, "a number that is not a team number never reaches Core");
 });
 
-test("a found team fills the name and location; not found in both programs is a complete answer", async () => {
+test("a found team fills the name and location; not found in any program is a complete answer", async () => {
   const harness = visitsHarness();
   harness.first.configure("FRC");
   harness.first.configure("FTC");
@@ -69,11 +72,27 @@ test("a found team fills the name and location; not found in both programs is a 
   saveTeam(harness, "team-1", "FRC", "9001", "Old test name");
   saveTeam(harness, "team-2", "Other", "9001", "Test Club");
   assert.deepEqual((await search(harness, "9001")).body, {
-    matches: [match("FRC", "9001", "Test Team Alpha", "Testville, PA"), match("FTC", "9001", "Test Team Beta", "Sampleton, Ontario"), match("Other", "9001", "Test Club", "", "saved")],
+    matches: [match("FRC", "9001", "Test Team Alpha", "Testville, PA"), match("FTC", "9001", "Test Team Beta", "Sampleton, Ontario"), match("Challenge", "9001", "Test Lego Team"), match("Other", "9001", "Test Club", "", "saved")],
     complete: true,
   });
-  assert.deepEqual((await search(harness, "9002")).body, { matches: [], complete: true }, "no team in FRC or FTC: the guest is asked for the program and name");
-  assert.ok(harness.first.searches.every((asked) => JSON.stringify(asked.programs) === JSON.stringify(["FRC", "FTC"])));
+  assert.deepEqual((await search(harness, "9002")).body, { matches: [], complete: true }, "no team in any program: the guest is asked for the program and name");
+  assert.ok(harness.first.searches.every((asked) => JSON.stringify(asked.programs) === JSON.stringify(["FRC", "FTC", "Challenge", "Explore"])));
+});
+
+test("FLL Challenge and FLL Explore teams are found without any credential, and a number in both is a choice", async () => {
+  const harness = visitsHarness();
+  harness.first.team("Challenge", "12345", "Test Team A", "Testville, PA");
+  harness.first.team("Explore", "12345", "Test Team B");
+  harness.first.team("Explore", "678", "Test Team C", "Sampleton, OH");
+  assert.deepEqual((await search(harness, "12345")).body, {
+    matches: [match("Challenge", "12345", "Test Team A", "Testville, PA"), match("Explore", "12345", "Test Team B")],
+    complete: false,
+  }, "FRC and FTC have no credential, so the answer is incomplete, but FLL still answers");
+  harness.first.configure("FRC");
+  harness.first.configure("FTC");
+  assert.deepEqual((await search(harness, "678")).body, { matches: [match("Explore", "678", "Test Team C", "Sampleton, OH")], complete: true });
+  harness.first.failures.set("Challenge", "provider-error");
+  assert.deepEqual((await search(harness, "12345")).body, { matches: [match("Explore", "12345", "Test Team B")], complete: false }, "FIRST's team search failing for one program leaves the search incomplete");
 });
 
 test("a program Core cannot answer leaves the search incomplete, and a Core failure answers saved teams only", async () => {
@@ -118,7 +137,7 @@ test("a credential Core cannot read stays, is reported in Team lookup settings, 
   harness.first.unreadable.add("synthetic-ciphertext-frc");
   const status = await lookupStatus(harness);
   assert.equal(status.status, 200);
-  assert.deepEqual(status.body, { programs: { FRC: { available: false, checkedAt: null }, FTC: { available: true, checkedAt: "2026-09-15T18:30:00.000Z" } }, notMoved: ["FRC"] });
+  assert.deepEqual(status.body, { programs: { FRC: { available: false, checkedAt: null }, FTC: { available: true, checkedAt: "2026-09-15T18:30:00.000Z" }, Challenge: { available: true, checkedAt: null }, Explore: { available: true, checkedAt: null } }, notMoved: ["FRC"] });
   assert.deepEqual(legacyPrograms(harness), ["FRC"]);
   // A new isolate tries again, for example after the integration key is fixed.
   harness.firstImport.settled = false;
@@ -139,13 +158,13 @@ test("a failed offer keeps the credentials and lookups carry on with what Core h
   assert.deepEqual((await search(harness, "9001")).body, { matches: [], complete: false });
   assert.deepEqual(legacyPrograms(harness), ["FRC"]);
   first.broken = new Error("Core is unavailable");
-  assert.deepEqual((await lookupStatus(harness)).body, { programs: { FRC: { available: false, checkedAt: null }, FTC: { available: false, checkedAt: null } }, notMoved: ["FRC"] });
+  assert.deepEqual((await lookupStatus(harness)).body, { programs: { FRC: { available: false, checkedAt: null }, FTC: { available: false, checkedAt: null }, Challenge: { available: false, checkedAt: null }, Explore: { available: false, checkedAt: null } }, notMoved: ["FRC"] });
 });
 
 test("the Team lookup settings status is Admin only, and credentials are no longer saved or removed in Guest Visits", async () => {
   const harness = visitsHarness();
   harness.first.configure("FRC");
-  assert.deepEqual((await lookupStatus(harness)).body, { programs: { FRC: { available: true, checkedAt: "2026-10-01T12:00:00.000Z" }, FTC: { available: false, checkedAt: null } }, notMoved: [] });
+  assert.deepEqual((await lookupStatus(harness)).body, { programs: { FRC: { available: true, checkedAt: "2026-10-01T12:00:00.000Z" }, FTC: { available: false, checkedAt: null }, Challenge: { available: true, checkedAt: null }, Explore: { available: true, checkedAt: null } }, notMoved: [] });
   assert.equal((await harness.call("GET", "/admin/visits/settings/first-api", { role: "operator" })).status, 403);
   assert.equal((await harness.call("PUT", "/admin/visits/settings/first-api", { body: { program: "FRC", username: "synthetic-admin", token: "synthetic-token" } })).status, 405);
   assert.equal((await harness.call("DELETE", "/admin/visits/settings/first-api?program=FRC")).status, 405);

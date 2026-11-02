@@ -284,7 +284,7 @@ test("the visits.bookings report lists visits by local date within the report pe
   const values = visitReportValues(records[1]!);
   assert.deepEqual(Object.keys(values).sort(), visitReportDataset.fields.map((field) => field.id).sort());
   assert.deepEqual(values[visitReportFields.duration], { text: "150", sortValue: 150 });
-  assert.deepEqual(values[visitReportFields.program], { text: "FIRST LEGO League Challenge", sortValue: "first lego league challenge" });
+  assert.deepEqual(values[visitReportFields.program], { text: "FLL Challenge", sortValue: "fll challenge" });
   assert.deepEqual([values[visitReportFields.arrival]!.text, values[visitReportFields.departure]!.text, values[visitReportFields.status]!.text, values[visitReportFields.outreach]!.text], ["18:00", "20:30", "Canceled", "No"]);
   assert.equal(visitReportLabel(records[1]!), "FLL Challenge 7 Lucky on 2026-11-04");
   assert.deepEqual(manifest.reportDatasets.map((dataset) => [dataset.id, dataset.capability, dataset.rowIdentity, dataset.filters]), [["visits.bookings", "visits.manage", "visits.booking.id", ["period"]]]);

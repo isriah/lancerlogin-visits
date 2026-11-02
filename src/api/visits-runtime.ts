@@ -49,8 +49,8 @@ export type VisitsLegacyFirstCredential = { readonly program: "FRC" | "FTC"; rea
  * per-visitor limit on public routes.
  */
 export type VisitsFirst = {
-  status(): Promise<Readonly<Record<"FRC" | "FTC", { readonly available: boolean; readonly checkedAt: string | null }>>>;
-  searchTeams(input: { readonly number: string; readonly programs?: readonly ("FRC" | "FTC")[] }): Promise<{ readonly results: readonly FirstSearchAnswer[]; readonly complete: boolean }>;
+  status(): Promise<Readonly<Record<"FRC" | "FTC" | "Challenge" | "Explore", { readonly available: boolean; readonly checkedAt: string | null }>>>;
+  searchTeams(input: { readonly number: string; readonly programs?: readonly ("FRC" | "FTC" | "Challenge" | "Explore")[] }): Promise<{ readonly results: readonly FirstSearchAnswer[]; readonly complete: boolean }>;
   /** Deprecated migration aid for Guest Visits only: Core takes the credential when it has none for that program. */
   importLegacyCredential(input: VisitsLegacyFirstCredential): Promise<"imported" | "kept-existing" | "unreadable">;
 };

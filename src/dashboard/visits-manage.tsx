@@ -70,8 +70,8 @@ function ManageVisit({ token, view, onNotice: setNotice, onView, onReload }: { t
   const currentWindow = windows.find((window) => window.startMs <= booking.arrivalMs && booking.departureMs <= window.endMs);
   const [windowId, setWindowId] = useState(currentWindow?.id ?? currentChoice);
   const [draft, setDraft] = useState<VisitDraft>(() => visitDraft(booking));
-  // While an Admin requires a headcount, the guest cannot clear it; otherwise it is optional.
-  const headcountRequired = view.headcountRequired;
+  // A guest cannot clear a headcount. A visit booked before headcounts were required may stay without one.
+  const headcountRequired = booking.headcount !== null;
   const { errors, setErrors, blur } = useLiveChecks(draft, (field: string, next: VisitDraft) => checkVisitField(field, next, headcountRequired));
   const [busy, setBusy] = useState(false);
   const [stale, setStale] = useState(false);
@@ -180,7 +180,7 @@ function ManageVisit({ token, view, onNotice: setNotice, onView, onReload }: { t
               </select>
             </Field>
           </div>
-          <Field id={ids("headcount")} label="Headcount" optional={!headcountRequired} error={errors.headcount}>
+          <Field id={ids("headcount")} label="Headcount (approximate)" optional={!headcountRequired} error={errors.headcount}>
             <input {...fieldAria(ids("headcount"), errors.headcount)} className="ui-control visits-number" type="number" inputMode="numeric" required={headcountRequired} min={1} max={100} step={1} value={draft.headcount} onChange={(event) => change("headcount", event.target.value)} onBlur={blur("headcount")} />
           </Field>
           <Field id={ids("contactName")} label="Your name" error={errors.contactName}>

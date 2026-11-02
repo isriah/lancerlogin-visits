@@ -100,7 +100,7 @@ export type PublicCalendar = {
   /** The host team's name from settings, such as "FRC 321 RoboLancers", or empty when none is set. */
   readonly hostName: string;
   readonly introText: string;
-  /** Whether an Admin requires a headcount to book. Otherwise the form marks it optional. */
+  /** Always true: every new booking needs an approximate headcount. Kept for clients that read it. */
   readonly headcountRequired: boolean;
   /** How far ahead guests may book, in days. */
   readonly horizonDays: number;
@@ -110,24 +110,30 @@ export type PublicTeamLookup = { readonly team: TeamIdentity | null };
 /** A team with the searched number. `location` is "City, State" (or "City, Country") from FIRST, or empty. */
 export type TeamMatch = TeamIdentity & { readonly location: string; readonly source: "first" | "saved" };
 export type PublicTeamSearch = {
-  /** Distinct by program: FIRST's name wins over a saved guest team's, FRC first, then FTC, then the rest. */
+  /** Distinct by program: FIRST's name wins over a saved guest team's, in program order (FRC, FTC, FLL Challenge, FLL Explore, Other). */
   readonly matches: readonly TeamMatch[];
   /**
-   * False when Core's FIRST connection could not answer for FRC and FTC both (no credential for a program, a provider
-   * failure or a lookup limit), so a missing match may only mean "unknown"; the guest can still enter the team by hand.
+   * False when Core's FIRST connection could not answer for every program it was asked about (no credential for FRC or
+   * FTC, a provider failure or a lookup limit), so a missing match may only mean "unknown"; the guest can still enter the
+   * team by hand.
    */
   readonly complete: boolean;
 };
-/** The programs Guest Visits looks up in FIRST's team lists. FIRST LEGO League teams are entered by hand. */
-export type FirstApiProgram = "FRC" | "FTC";
+/**
+ * The programs Guest Visits looks up through Core's FIRST connection, as `services.first` names them: FRC and FTC from
+ * FIRST's Events APIs, FLL Challenge and FLL Explore from FIRST's public team search.
+ */
+export type FirstApiProgram = "FRC" | "FTC" | "Challenge" | "Explore";
+/** The programs that need an Events API credential, the only ones Guest Visits ever saved one for. */
+export type FirstCredentialProgram = "FRC" | "FTC";
 export type FirstLookupStatus = {
-  /** Per program: whether Core can look teams up now, and when FIRST last accepted its credential. */
+  /** Per program: whether Core can look teams up now, and when FIRST last accepted its credential (null for FLL, which needs none). */
   readonly programs: { readonly [Program in FirstApiProgram]: { readonly available: boolean; readonly checkedAt: string | null } };
   /**
    * Programs whose credential, saved in Guest Visits before team lookup moved to Core, could not be moved because Core
    * cannot read it, while Core has no working credential of its own for them. An Admin saves that program again in Core.
    */
-  readonly notMoved: readonly FirstApiProgram[];
+  readonly notMoved: readonly FirstCredentialProgram[];
 };
 export type PublicBookingRequest = {
   readonly teamNumber: string;
@@ -139,7 +145,7 @@ export type PublicBookingRequest = {
   readonly date: string;
   readonly arrival: string;
   readonly departure: string;
-  /** Optional unless `PublicCalendar.headcountRequired`; null or left out means not given. */
+  /** Required: an approximate number of people, 1 to 100. Null or left out is refused. */
   readonly headcount?: number | null;
   readonly note?: string;
   readonly submissionKey: string;
@@ -175,7 +181,7 @@ export type ManageEditRequest = {
   readonly date?: string;
   readonly arrival?: string;
   readonly departure?: string;
-  /** Null clears it (refused for guests while a headcount is required). */
+  /** Null would clear it, which is refused for guests. */
   readonly headcount?: number | null;
   readonly note?: string;
   readonly contactName?: string;
@@ -285,7 +291,10 @@ export type VisitsSettings = {
   /** 0 is Sunday. */
   readonly weeklySummaryWeekday: number;
   readonly weeklySummaryTime: string;
-  /** Guests must give a headcount to book. Off by default: the headcount is optional. */
+  /**
+   * Stored for older clients and backups only: every new booking now needs a headcount whatever this says, and Settings no
+   * longer shows it.
+   */
   readonly headcountRequired: boolean;
 };
 export type VisitsSettingsUpdate = Partial<Omit<VisitsSettings, "revision" | "testEmailSentMs">> & { readonly revision: number };

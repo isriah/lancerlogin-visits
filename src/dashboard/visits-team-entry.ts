@@ -12,7 +12,7 @@ export type TeamSearch =
 
 export type TeamEntryMode = "none" | "searching" | "confirm" | "pick" | "manual";
 
-/** A number worth looking up: 1 to 6 digits once trimmed, as FIRST numbers its FRC and FTC teams; otherwise null. */
+/** A number worth looking up: 1 to 6 digits once trimmed, as FIRST numbers its teams in every program; otherwise null. */
 export function searchableNumber(value: string): string | null {
   const trimmed = value.trim().replace(/^0+(?=\d)/, "");
   return /^\d{1,6}$/.test(trimmed) ? trimmed : null;
@@ -33,7 +33,7 @@ export function teamEntryMode(search: TeamSearch, manual: boolean, typed: string
 export function manualReason(search: TeamSearch, chosenManual: boolean, typed: string): string {
   if (chosenManual || !searchableNumber(typed)) return "";
   if (search.status === "failed" || (search.status === "found" && !search.result.matches.length && !search.result.complete)) return "Team lookup is not available right now. Choose your program and enter your team name.";
-  if (search.status === "found" && !search.result.matches.length) return `No team ${search.number} was found in FIRST's FRC or FTC team lists. Choose your program and enter your team name.`;
+  if (search.status === "found" && !search.result.matches.length) return `No team ${search.number} was found in FIRST's FRC, FTC, FLL Challenge or FLL Explore team lists. Choose your program and enter your team name.`;
   return "";
 }
 

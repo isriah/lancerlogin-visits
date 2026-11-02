@@ -119,16 +119,16 @@ export function monthGridRange(today: string, offset: number): { readonly from: 
   return { from: addDays(first, -weekdayOf(first)), to: addDays(last, 6 - weekdayOf(last)), month: first.slice(0, 7) };
 }
 
-/** Weeks the guest calendar shows at once: last week, this week and the three after it, like Core's rolling calendars. */
+/** Weeks the guest calendar shows at once: this week and the four after it. */
 export const guestViewWeeks = 5;
 
 /**
- * The dates of guest calendar view `view`, Sunday first. View 0 starts on the Sunday of last week; each view after it
- * starts five weeks later, the step the arrows on Core's rolling calendars took.
+ * The dates of guest calendar view `view`, Sunday first. View 0 starts on the Sunday of this week (the week holding
+ * `today`, in the installation time zone); each view after it starts five weeks later, the step its arrows take.
  */
 export function guestWeekDates(today: string, view: number): string[] {
   if (!isLocalDate(today)) throw new RangeError(`Not a local date: ${today}`);
-  const first = addDays(today, view * 7 * guestViewWeeks - weekdayOf(today) - 7);
+  const first = addDays(today, view * 7 * guestViewWeeks - weekdayOf(today));
   return Array.from({ length: 7 * guestViewWeeks }, (_, index) => addDays(first, index));
 }
 
@@ -273,7 +273,7 @@ export function guestCellLines(day: GuestDay | undefined, room: number): GuestCe
 
 /**
  * The last view a guest may move to: the one holding the horizon's last day or the last posted window, whichever is
- * later. View 0, with last week and this week, is the first, so guests never page back before last week.
+ * later. View 0, starting with this week, is the first, so guests never page back to past weeks.
  */
 export function guestLastView(today: string, horizonDays: number, days: ReadonlyMap<string, GuestDay>): number {
   const last = [addDays(today, Math.max(0, horizonDays - 1)), ...days.keys()].sort().at(-1)!;

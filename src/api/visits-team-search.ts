@@ -1,19 +1,20 @@
 // Team lookup by number (`GET /public/visits/team-search`) through Core's shared FIRST connection, `services.first`
-// (module SDK 1.2.0), and its status for Settings > Guest Visits (`GET /admin/visits/settings/first-api`). Core holds the
-// FRC and FTC credentials, caches FIRST's answers and applies the request limits; Guest Visits sends it only the team
-// number and adds this installation's saved guest teams.
+// (module SDK 1.2.0), and its status for Settings > Guest Visits (`GET /admin/visits/settings/first-api`). Core asks
+// FIRST's Events APIs for FRC and FTC teams with the credentials it holds, and FIRST's public team search for FLL
+// Challenge and FLL Explore teams; it caches FIRST's answers and applies the request limits. Guest Visits sends it only
+// the team number and adds this installation's saved guest teams.
 //
 // Before team lookup moved to Core, Guest Visits kept its own FRC and FTC credentials in visits_first_credentials. Each
 // Worker isolate offers those to Core once, on its first team search, settings read or job pass, with
 // `importLegacyCredential`, and deletes each one Core took or already had. A credential Core cannot read stays, so a later
 // isolate can try again once the integration key is fixed, until Core has a working credential of its own for that program.
 import type { D1Database } from "@lancerlogin/module-sdk/api";
-import type { FirstApiProgram, FirstLookupStatus, PublicTeamSearch, TeamMatch } from "../shared/visits-api.ts";
+import type { FirstApiProgram, FirstCredentialProgram, FirstLookupStatus, PublicTeamSearch, TeamMatch } from "../shared/visits-api.ts";
 import { parseTeamNumber, type VisitProgram } from "../shared/visits-booking.ts";
-import { firstApiPrograms, firstMatchesOf, isFirstApiProgram, mergeTeamMatches } from "../shared/visits-team-search.ts";
+import { firstApiPrograms, firstMatchesOf, isFirstCredentialProgram, mergeTeamMatches } from "../shared/visits-team-search.ts";
 import { installationId, rows, VisitsError, type VisitsDeps } from "./visits-runtime.ts";
 
-type CredentialRow = { program: FirstApiProgram; username: string; ciphertext: string; iv: string; checked_at: string };
+type CredentialRow = { program: FirstCredentialProgram; username: string; ciphertext: string; iv: string; checked_at: string };
 
 const legacyCredentials = (db: D1Database) =>
   rows<CredentialRow>(db.prepare("SELECT program,username,ciphertext,iv,checked_at FROM visits_first_credentials WHERE installation_id=? ORDER BY program").bind(installationId));
@@ -33,7 +34,7 @@ export async function moveLegacyFirstCredentials(db: D1Database, deps: VisitsDep
   if (state.settled) return;
   state.running ??= (async () => {
     for (const row of await legacyCredentials(db)) {
-      if (!isFirstApiProgram(row.program)) continue;
+      if (!isFirstCredentialProgram(row.program)) continue;
       let outcome: string | undefined;
       try {
         outcome = await deps.first.importLegacyCredential({ program: row.program, username: row.username, ciphertext: row.ciphertext, iv: row.iv, checkedAt: row.checked_at });
@@ -47,7 +48,7 @@ export async function moveLegacyFirstCredentials(db: D1Database, deps: VisitsDep
 
 type FirstAnswer = { readonly matches: readonly TeamMatch[]; readonly complete: boolean };
 
-/** FIRST's FRC and FTC teams with this number from Core. Incomplete, with no matches, when Core cannot be asked. */
+/** FIRST's FRC, FTC, FLL Challenge and FLL Explore teams with this number from Core. Incomplete, with no matches, when Core cannot be asked. */
 async function lookUpFirst(db: D1Database, deps: VisitsDeps, number: string): Promise<FirstAnswer> {
   await moveLegacyFirstCredentials(db, deps);
   try {
@@ -56,7 +57,7 @@ async function lookUpFirst(db: D1Database, deps: VisitsDeps, number: string): Pr
   } catch { return { matches: [], complete: false }; }
 }
 
-/** `GET /public/visits/team-search?number=`: FIRST's FRC and FTC teams with that number and this installation's saved teams. */
+/** `GET /public/visits/team-search?number=`: FIRST's teams with that number in every program but Other, and this installation's saved teams. */
 export async function searchTeams(db: D1Database, deps: VisitsDeps, url: URL): Promise<PublicTeamSearch> {
   const parsed = parseTeamNumber(url.searchParams.get("number") ?? "", "FRC", "number");
   if (!parsed.ok) throw new VisitsError(400, "Enter a team number of 1 to 6 digits", "number");
@@ -74,17 +75,21 @@ export async function searchTeams(db: D1Database, deps: VisitsDeps, url: URL): P
 const off = { available: false, checkedAt: null } as const;
 
 /**
- * `GET /admin/visits/settings/first-api`: whether Core can look up FRC and FTC teams, and which saved Guest Visits
+ * `GET /admin/visits/settings/first-api`: which programs Core can look teams up in now, and which saved Guest Visits
  * credentials could not be moved to Core. A credential that could not be moved is deleted once Core has a working one of
  * its own for that program, since it is then never needed.
  */
 export async function firstLookupStatus(db: D1Database, deps: VisitsDeps): Promise<FirstLookupStatus> {
   await moveLegacyFirstCredentials(db, deps);
   const status = await deps.first.status().catch(() => undefined);
-  const programs = { FRC: status?.FRC ? { available: status.FRC.available === true, checkedAt: status.FRC.checkedAt ?? null } : off, FTC: status?.FTC ? { available: status.FTC.available === true, checkedAt: status.FTC.checkedAt ?? null } : off };
-  const notMoved: FirstApiProgram[] = [];
+  const of = (program: FirstApiProgram) => {
+    const answer = status?.[program];
+    return answer ? { available: answer.available === true, checkedAt: answer.checkedAt ?? null } : off;
+  };
+  const programs = { FRC: of("FRC"), FTC: of("FTC"), Challenge: of("Challenge"), Explore: of("Explore") };
+  const notMoved: FirstCredentialProgram[] = [];
   for (const row of await legacyCredentials(db)) {
-    if (!isFirstApiProgram(row.program)) continue;
+    if (!isFirstCredentialProgram(row.program)) continue;
     if (programs[row.program].available) await forget(db, row);
     else notMoved.push(row.program);
   }

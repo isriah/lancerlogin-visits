@@ -1,5 +1,5 @@
-// The guest page's calendar: five weeks at a time, last week to three weeks ahead, like Core's rolling dashboard calendars,
-// with arrows that move five weeks and stop at last week and at the booking horizon. Days with open times stand out and
+// The guest page's calendar: five weeks at a time, this week to four weeks ahead, with arrows that move five weeks and
+// stop at this week and at the booking horizon. Days with open times stand out and
 // are the ones a guest chooses; a day whose times were all canceled also opens, to show the reason. Other days are
 // disabled. On wider screens the weeks fill the window below the page title and each cell lists as much of its day as
 // fits. Arrow keys move between the days that can be chosen; Tab reaches them in date order.

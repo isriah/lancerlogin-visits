@@ -165,9 +165,9 @@ const coreFirstPrograms: readonly CoreFirstProgram[] = ["FRC", "FTC", "Challenge
 type Unavailable = "not-configured" | "rate-limited" | "timeout" | "provider-error";
 
 /**
- * Core's shared FIRST connection as `services.first` hands it to Guest Visits, answering from a synthetic team list. A
- * program answers "not-configured" until it has a credential (FLL Challenge and Explore never do here), and `failures`
- * makes a program answer unavailable for another reason. `searchTeams` asks all four programs unless told which, like
+ * Core's shared FIRST connection as `services.first` hands it to Guest Visits, answering from a synthetic team list. FRC
+ * and FTC answer "not-configured" until they have a credential; FLL Challenge and Explore need none, as Core asks FIRST's
+ * public team search for them, so they always answer. `failures` makes a program answer unavailable for another reason. `searchTeams` asks all four programs unless told which, like
  * Core's. `importLegacyCredential` behaves like Core's: "unreadable" for a ciphertext Core cannot decrypt, "kept-existing"
  * when the program already has a credential (an Admin's wins), otherwise the program takes it.
  */
@@ -189,7 +189,8 @@ export class FakeFirstConnection implements VisitsFirst {
   async status() {
     if (this.broken) throw this.broken;
     const events = (program: "FRC" | "FTC") => this.credentials.has(program) ? { available: true, checkedAt: this.credentials.get(program)!.checkedAt } : { available: false, checkedAt: null };
-    return { FRC: events("FRC"), FTC: events("FTC"), Challenge: { available: false, checkedAt: null }, Explore: { available: false, checkedAt: null } };
+    const search = (program: "Challenge" | "Explore") => ({ available: !this.failures.has(program), checkedAt: null });
+    return { FRC: events("FRC"), FTC: events("FTC"), Challenge: search("Challenge"), Explore: search("Explore") };
   }
 
   async searchTeams(input: { readonly number: string; readonly programs?: readonly string[] }) {
@@ -197,10 +198,10 @@ export class FakeFirstConnection implements VisitsFirst {
     this.searches.push({ number: input.number, programs: input.programs });
     if (!/^[1-9]\d{0,5}$/.test(input.number)) throw new CoreError(400, "Enter a team number of 1 to 6 digits");
     const results = coreFirstPrograms.filter((program) => (input.programs ?? coreFirstPrograms).includes(program)).map((program) => {
-      const failure = this.failures.get(program) ?? (program === "FRC" || program === "FTC" ? (this.credentials.has(program) ? undefined : "not-configured") : "provider-error");
+      const failure = this.failures.get(program) ?? (program === "FRC" || program === "FTC" ? (this.credentials.has(program) ? undefined : "not-configured") : undefined);
       if (failure) return { program, status: "unavailable" as const, reason: failure };
       const team = this.teams.get(`${program}:${input.number}`);
-      return team ? { program, status: "found" as const, team: { program, number: input.number, ...team, season: 2026, source: "events-api" as const } } : { program, status: "not-found" as const };
+      return team ? { program, status: "found" as const, team: { program, number: input.number, ...team, season: 2026, source: program === "FRC" || program === "FTC" ? "events-api" as const : "first-search" as const } } : { program, status: "not-found" as const };
     });
     return { results, complete: results.every((result) => result.status !== "unavailable") };
   }
