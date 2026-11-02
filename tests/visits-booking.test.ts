@@ -17,7 +17,7 @@ const windows = [monday, wednesday, thanksgiving];
 const now = at("2026-10-28T16:00:00Z");
 
 const body = {
-  teamNumber: " 1234 ", teamName: " Gear   Heads ", program: "FRC", contactName: "Pat Coach", contactEmail: " pat.coach@example.org ", contactPhone: "(555) 010-0199",
+  teamNumber: " 99934 ", teamName: " Test   Heads ", program: "FRC", contactName: "Pat Coach", contactEmail: " pat.coach@example.org ", contactPhone: "(555) 010-0199",
   date: "2026-11-02", arrival: "18:30", departure: "20:00", headcount: 12, note: " Bringing our robot.\r\nNeed a cart. ", submissionKey: "key-0123456789abcdef",
 };
 
@@ -36,7 +36,7 @@ test("programs follow Outreach, with Other never linked to Outreach", () => {
   assert.equal(programLabels.Challenge, "FLL Challenge");
   assert.equal(programLabels.Explore, "FLL Explore");
   assert.deepEqual(visitPrograms.map(outreachProgram), ["FRC", "FTC", "Challenge", "Explore", null]);
-  assert.equal(teamLabel({ program: "Challenge", number: "12345", name: "Brick Builders" }), "FLL Challenge 12345 Brick Builders");
+  assert.equal(teamLabel({ program: "Challenge", number: "99945", name: "Brick Builders" }), "FLL Challenge 99945 Brick Builders");
   assert.equal(teamLabel({ program: "Other", number: "99X", name: "Rockets" }), "Team 99X Rockets");
 });
 
@@ -44,7 +44,7 @@ test("a guest booking is validated and normalized", () => {
   const result = parseBookingInput(body);
   assert.ok(result.ok, JSON.stringify(result));
   assert.deepEqual(result.value, {
-    team: { number: "1234", name: "Gear Heads", program: "FRC" }, contact: { name: "Pat Coach", email: "pat.coach@example.org", phone: "(555) 010-0199" },
+    team: { number: "99934", name: "Test Heads", program: "FRC" }, contact: { name: "Pat Coach", email: "pat.coach@example.org", phone: "(555) 010-0199" },
     date: "2026-11-02", arrival: "18:30", departure: "20:00", headcount: 12, note: "Bringing our robot.\nNeed a cart.", submissionKey: "key-0123456789abcdef",
   });
   const minimal = parseBookingInput({ ...body, contactPhone: undefined, note: undefined });
@@ -54,7 +54,7 @@ test("a guest booking is validated and normalized", () => {
 test("a booking without an email address or with bad fields is refused with the field to fix", () => {
   const cases: [Record<string, unknown>, string][] = [
     [{ contactEmail: undefined }, "contactEmail"], [{ contactEmail: "" }, "contactEmail"], [{ contactEmail: "pat at example" }, "contactEmail"],
-    [{ contactEmail: "Pat <pat@example.org>" }, "contactEmail"], [{ contactEmail: "a@b.org, c@d.org" }, "contactEmail"],
+    [{ contactEmail: "Pat <pat@example.org>" }, "contactEmail"], [{ contactEmail: "a@example.test, c@example.test" }, "contactEmail"],
     [{ program: "FLL" }, "program"], [{ program: "frc" }, "program"], [{ teamNumber: "" }, "teamNumber"], [{ teamNumber: "12a" }, "teamNumber"],
     [{ teamNumber: "1234567" }, "teamNumber"], [{ teamName: "  " }, "teamName"], [{ teamName: "x".repeat(101) }, "teamName"], [{ contactName: "" }, "contactName"],
     [{ contactPhone: "call me" }, "contactPhone"], [{ contactPhone: "12345" }, "contactPhone"], [{ date: "2026-11-31" }, "date"], [{ arrival: "6:30 PM" }, "arrival"],
@@ -63,21 +63,21 @@ test("a booking without an email address or with bad fields is refused with the 
     [{ windowId: "mon" }, "windowId"],
   ];
   for (const [change, field] of cases) assert.equal(failure(parseBookingInput({ ...body, ...change })).field, field, JSON.stringify(change));
-  assert.equal(failure(parseBookingInput("teamNumber=1234")).field, "");
+  assert.equal(failure(parseBookingInput("teamNumber=99934")).field, "");
   assert.equal(failure(parseBookingInput({ ...body, note: "x".repeat(1001) })).error, "Team needs are at most 1000 characters");
   assert.equal(failure(parseBookingInput({ ...body, note: 12 })).error, "Enter team needs as text");
 });
 
 test("team numbers are normalized per program", () => {
-  assert.deepEqual(parseTeamNumber("0321", "FRC"), { ok: true, value: "321" });
-  assert.deepEqual(parseTeamNumber(16072, "FTC"), { ok: true, value: "16072" });
-  assert.deepEqual(parseTeamNumber("#45", "Explore"), { ok: true, value: "45" });
+  assert.deepEqual(parseTeamNumber("099921", "FRC"), { ok: true, value: "99921" });
+  assert.deepEqual(parseTeamNumber(99972, "FTC"), { ok: true, value: "99972" });
+  assert.deepEqual(parseTeamNumber("#99946", "Explore"), { ok: true, value: "99946" });
   assert.deepEqual(parseTeamNumber(" 99x-b ", "Other"), { ok: true, value: "99X-B" });
   for (const [value, program] of [["000", "FRC"], ["-1", "FTC"], ["ABCDEFGHIJK", "Other"], ["a b", "Other"], [null, "FRC"]] as const) assert.equal(parseTeamNumber(value, program).ok, false, String(value));
 });
 
 test("contact fields accept common forms", () => {
-  for (const email of ["pat@example.org", "first.last+visits@mail.example.co.uk", "o'neil@example.com"]) assert.ok(parseEmail(email).ok, email);
+  for (const email of ["pat@example.org", "first.last+visits@mail.example.test", "o'neil@example.com"]) assert.ok(parseEmail(email).ok, email);
   for (const phone of ["555-010-0199", "+1 (555) 010-0199", "555.010.0199", "+44 20 7946 0958"]) assert.ok(parsePhone(phone).ok, phone);
   assert.deepEqual(parsePhone("   "), { ok: true, value: "" });
   assert.deepEqual(parseHeadcount("8"), { ok: true, value: 8 });
@@ -117,7 +117,7 @@ test("guests book only future visits in windows within eight weeks", () => {
 });
 
 test("the public page shows team, program, times and headcount only", () => {
-  const teams = new Map<string, TeamIdentity>([["t1", { number: "1234", name: "Gear Heads", program: "FRC" }], ["t2", { number: "16072", name: "Quantum", program: "FTC" }]]);
+  const teams = new Map<string, TeamIdentity>([["t1", { number: "99934", name: "Test Heads", program: "FRC" }], ["t2", { number: "99972", name: "Test Quanta", program: "FTC" }]]);
   const bookings = [
     { windowId: "mon", teamId: "t2", arrivalMs: monday.startMs + hour, departureMs: monday.endMs, headcount: 6, status: "booked" as const, contactEmail: "secret@example.org", note: "private" },
     { windowId: "mon", teamId: "t1", arrivalMs: monday.startMs, departureMs: monday.startMs + 2 * hour, headcount: 12, status: "booked" as const },
@@ -129,8 +129,8 @@ test("the public page shows team, program, times and headcount only", () => {
   const page = publicWindows({ windows: [thanksgiving, removed, monday, past], bookings, teams, now });
   assert.deepEqual(page.map((window) => [window.id, window.status, window.teamCount, window.cancelReason]), [["mon", "open", 2, ""], ["thu", "canceled", 0, "Thanksgiving"]]);
   assert.deepEqual(page[0]!.visits, [
-    { teamNumber: "1234", teamName: "Gear Heads", program: "FRC", arrivalMs: monday.startMs, departureMs: monday.startMs + 2 * hour, headcount: 12 },
-    { teamNumber: "16072", teamName: "Quantum", program: "FTC", arrivalMs: monday.startMs + hour, departureMs: monday.endMs, headcount: 6 },
+    { teamNumber: "99934", teamName: "Test Heads", program: "FRC", arrivalMs: monday.startMs, departureMs: monday.startMs + 2 * hour, headcount: 12 },
+    { teamNumber: "99972", teamName: "Test Quanta", program: "FTC", arrivalMs: monday.startMs + hour, departureMs: monday.endMs, headcount: 6 },
   ]);
   assert.doesNotMatch(JSON.stringify(page), /secret|private|Pat/);
   assert.deepEqual(Object.keys(publicVisit({ ...bookings[0]!, contactName: "Pat" } as never, teams.get("t1")!)).sort(), ["arrivalMs", "departureMs", "headcount", "program", "teamName", "teamNumber"]);
@@ -266,5 +266,5 @@ test("history snapshots and fingerprints carry an unknown headcount; older snaps
   const withCount = parseBookingInput(body);
   assert.ok(without.ok && withCount.ok);
   assert.notEqual(bookingFingerprintText(without.value), bookingFingerprintText(withCount.value), "a submission key reused with a headcount added is another booking");
-  assert.equal(publicVisit({ arrivalMs: 0, departureMs: hour, headcount: null }, { number: "1", name: "One", program: "FRC" }).headcount, null);
+  assert.equal(publicVisit({ arrivalMs: 0, departureMs: hour, headcount: null }, { number: "99981", name: "One", program: "FRC" }).headcount, null);
 });

@@ -10,12 +10,12 @@ const zeroWidthSpace = String.fromCharCode(0x200b);
 const manageUrl = `https://dashboard.example.org/visit/manage#${"T".repeat(43)}`;
 
 const details = (overrides: Partial<VisitMessageDetails> = {}): VisitMessageDetails => ({
-  hostName: "FRC 321", team: { number: "1234", name: "Gear Heads", program: "FRC" }, contactName: "Pat Coach", contactPhone: "555-010-0199",
+  hostName: "FRC 99921", team: { number: "99934", name: "Test Heads", program: "FRC" }, contactName: "Pat Coach", contactPhone: "555-010-0199",
   date: "2026-11-02", arrival: "18:30", departure: "20:00", headcount: 12, note: "", windowTitle: "Open shop", ...overrides,
 });
 
 const hostile = details({
-  team: { number: "1234", name: "<script>alert('x')</script> & @everyone **bold**", program: "FRC" },
+  team: { number: "99934", name: "<script>alert('x')</script> & @everyone **bold**", program: "FRC" },
   contactName: "Pat <b>Coach</b>", note: "Line one\n<img src=x onerror=alert(1)>", contactPhone: "555 \"010\" 0199",
 });
 
@@ -34,7 +34,7 @@ test("Discord escaping makes guest text inert", () => {
 
 test("message details are read in the installation time zone", () => {
   const result = visitMessageDetails(civil, newYork, {
-    hostName: "FRC 321", team: { number: "1234", name: "Gear Heads", program: "FRC" }, windowTitle: "Open shop",
+    hostName: "FRC 99921", team: { number: "99934", name: "Test Heads", program: "FRC" }, windowTitle: "Open shop",
     booking: { contactName: "Pat Coach", contactPhone: "", arrivalMs: at("2026-11-02T23:30:00Z"), departureMs: at("2026-11-03T01:00:00Z"), headcount: 12, note: "Hi" },
   });
   assert.deepEqual(result, { ...details({ contactPhone: "", note: "Hi" }) });
@@ -42,9 +42,9 @@ test("message details are read in the installation time zone", () => {
 
 test("the confirmation email states the visit plainly and carries the manage link", () => {
   const email = confirmationEmail(details({ note: "Bringing our robot" }), manageUrl);
-  assert.equal(email.subject, "Your visit to FRC 321 on Monday, November 2");
-  assert.match(email.text, /^Hello Pat Coach,\n\nYour visit to FRC 321 is booked\. Here are the details\.\n/);
-  for (const line of ["Team: FRC 1234 Gear Heads", "Date: Monday, November 2, 2026", "Time slot: Open shop", "Arrival: 6:30 PM", "Departure: 8:00 PM", "People: 12", "Phone: 555-010-0199", "Team needs: Bringing our robot", manageUrl]) {
+  assert.equal(email.subject, "Your visit to FRC 99921 on Monday, November 2");
+  assert.match(email.text, /^Hello Pat Coach,\n\nYour visit to FRC 99921 is booked\. Here are the details\.\n/);
+  for (const line of ["Team: FRC 99934 Test Heads", "Date: Monday, November 2, 2026", "Time slot: Open shop", "Arrival: 6:30 PM", "Departure: 8:00 PM", "People: 12", "Phone: 555-010-0199", "Team needs: Bringing our robot", manageUrl]) {
     assert.ok(email.text.includes(line), line);
   }
   assert.match(email.html, /<th [^>]*>Team needs<\/th><td [^>]*>Bringing our robot<\/td>/);
@@ -62,8 +62,8 @@ test("guest text is escaped in email HTML and kept out of the subject", () => {
   assert.ok(email.html.includes("&lt;script&gt;alert(&#39;x&#39;)&lt;/script&gt; &amp; @everyone **bold**"));
   assert.ok(email.html.includes("Line one<br>&lt;img src=x onerror=alert(1)&gt;"));
   assert.ok(email.html.includes("555 &quot;010&quot; 0199"));
-  assert.equal(email.subject, "Your visit to FRC 321 on Monday, November 2");
-  assert.equal(confirmationEmail(details({ hostName: "FRC 321\r\nBcc: x@example.org" }), manageUrl).subject, "Your visit to FRC 321 Bcc: x@example.org on Monday, November 2");
+  assert.equal(email.subject, "Your visit to FRC 99921 on Monday, November 2");
+  assert.equal(confirmationEmail(details({ hostName: "FRC 99921\r\nBcc: x@example.org" }), manageUrl).subject, "Your visit to FRC 99921 Bcc: x@example.org on Monday, November 2");
 });
 
 test("update and cancellation emails say what happened, with a fresh link", () => {
@@ -71,12 +71,12 @@ test("update and cancellation emails say what happened, with a fresh link", () =
   assert.deepEqual(changeLabels(changes), ["date and time", "headcount"]);
   assert.deepEqual(changeLabels([{ field: "note", from: "", to: "CAD review" }]), ["team needs"]);
   const update = updateEmail(details({ headcount: 14 }), manageUrl, changes);
-  assert.equal(update.subject, "Updated: your visit to FRC 321 on Monday, November 2");
-  assert.ok(update.text.includes("Your visit to FRC 321 was changed (date and time, headcount). Here are the updated details."));
+  assert.equal(update.subject, "Updated: your visit to FRC 99921 on Monday, November 2");
+  assert.ok(update.text.includes("Your visit to FRC 99921 was changed (date and time, headcount). Here are the updated details."));
   assert.ok(update.text.includes(manageUrl) && update.html.includes(manageUrl));
   const canceled = cancellationEmail(details(), manageUrl);
-  assert.equal(canceled.subject, "Canceled: your visit to FRC 321 on Monday, November 2");
-  assert.ok(canceled.text.includes("Your visit to FRC 321 is canceled."));
+  assert.equal(canceled.subject, "Canceled: your visit to FRC 99921 on Monday, November 2");
+  assert.ok(canceled.text.includes("Your visit to FRC 99921 is canceled."));
   assert.ok(canceled.html.includes(">View this visit</a>"));
   const noLink = cancellationEmail(details(), null);
   assert.doesNotMatch(noLink.text + noLink.html, /visit\/manage|href=/);
@@ -85,14 +85,14 @@ test("update and cancellation emails say what happened, with a fresh link", () =
 test("Discord lines name the team, time and headcount, never contacts or team needs", () => {
   const visit = details({ note: "Private note", contactName: "Pat Coach" });
   const needsChanged = discordChangedMessage(visit, [{ field: "note", from: "Old need", to: "Private note" }]);
-  assert.equal(needsChanged, "Guest visit changed (team needs): FRC 1234 Gear Heads - Monday, November 2, 6:30 PM to 8:00 PM - 12 people");
+  assert.equal(needsChanged, "Guest visit changed (team needs): FRC 99934 Test Heads - Monday, November 2, 6:30 PM to 8:00 PM - 12 people");
   assert.doesNotMatch(needsChanged, /Old need|Private/, "a change names the field, never its text");
-  assert.equal(discordVisitLine(visit), "FRC 1234 Gear Heads - Monday, November 2, 6:30 PM to 8:00 PM - 12 people");
-  assert.equal(discordBookedMessage(visit), "New guest visit: FRC 1234 Gear Heads - Monday, November 2, 6:30 PM to 8:00 PM - 12 people");
-  assert.equal(discordChangedMessage(visit, [{ field: "headcount", from: 10, to: 12 }]), "Guest visit changed (headcount): FRC 1234 Gear Heads - Monday, November 2, 6:30 PM to 8:00 PM - 12 people");
-  assert.equal(discordCanceledMessage(details({ headcount: 1 })), "Guest visit canceled: FRC 1234 Gear Heads - Monday, November 2, 6:30 PM to 8:00 PM - 1 person");
+  assert.equal(discordVisitLine(visit), "FRC 99934 Test Heads - Monday, November 2, 6:30 PM to 8:00 PM - 12 people");
+  assert.equal(discordBookedMessage(visit), "New guest visit: FRC 99934 Test Heads - Monday, November 2, 6:30 PM to 8:00 PM - 12 people");
+  assert.equal(discordChangedMessage(visit, [{ field: "headcount", from: 10, to: 12 }]), "Guest visit changed (headcount): FRC 99934 Test Heads - Monday, November 2, 6:30 PM to 8:00 PM - 12 people");
+  assert.equal(discordCanceledMessage(details({ headcount: 1 })), "Guest visit canceled: FRC 99934 Test Heads - Monday, November 2, 6:30 PM to 8:00 PM - 1 person");
   for (const message of [discordBookedMessage(visit), discordChangedMessage(visit), discordCanceledMessage(visit)]) assert.doesNotMatch(message, /Pat|Private|555/);
-  assert.equal(discordBookedMessage(hostile), `New guest visit: FRC 1234 \\<script\\>alert\\('x'\\)\\</script\\> & @${zeroWidthSpace}everyone \\*\\*bold\\*\\* - Monday, November 2, 6:30 PM to 8:00 PM - 12 people`);
+  assert.equal(discordBookedMessage(hostile), `New guest visit: FRC 99934 \\<script\\>alert\\('x'\\)\\</script\\> & @${zeroWidthSpace}everyone \\*\\*bold\\*\\* - Monday, November 2, 6:30 PM to 8:00 PM - 12 people`);
 });
 
 test("Discord bodies mention nobody, suppress previews and carry a nonce Discord enforces", () => {
@@ -108,20 +108,20 @@ test("a visit without a headcount reads Not given in emails and headcount not gi
   assert.match(email.text, /^People: Not given$/m);
   assert.match(email.html, /<th[^>]*>People<\/th><td[^>]*>Not given<\/td>/);
   assert.match(confirmationEmail(details(), manageUrl).text, /^People: 12$/m);
-  assert.equal(discordVisitLine(unknown), "FRC 1234 Gear Heads - Monday, November 2, 6:30 PM to 8:00 PM - headcount not given");
-  assert.equal(discordVisitLine(details({ headcount: 1 })), "FRC 1234 Gear Heads - Monday, November 2, 6:30 PM to 8:00 PM - 1 person");
+  assert.equal(discordVisitLine(unknown), "FRC 99934 Test Heads - Monday, November 2, 6:30 PM to 8:00 PM - headcount not given");
+  assert.equal(discordVisitLine(details({ headcount: 1 })), "FRC 99934 Test Heads - Monday, November 2, 6:30 PM to 8:00 PM - 1 person");
   assert.equal(peopleCount(null), "headcount not given");
   const { formatWeeklySummary } = await import("../src/shared/visits-summary.ts");
-  const team = { number: "1234", name: "Gear Heads", program: "FRC" as const };
+  const team = { number: "99934", name: "Test Heads", program: "FRC" as const };
   const summary = formatWeeklySummary(civil, newYork, { reportDate: "2026-11-02", nextReportDate: "2026-11-09", visits: [
     { status: "booked", arrivalMs: at("2026-11-02T23:30:00Z"), departureMs: at("2026-11-03T01:00:00Z"), headcount: null, team },
     { status: "booked", arrivalMs: at("2026-11-04T23:30:00Z"), departureMs: at("2026-11-05T01:00:00Z"), headcount: 5, team },
   ] });
-  assert.match(summary, /- FRC 1234 Gear Heads: 6:30 PM to 8:00 PM, headcount not given$/m);
-  assert.match(summary, /- FRC 1234 Gear Heads: 6:30 PM to 8:00 PM, 5 people$/m);
+  assert.match(summary, /- FRC 99934 Test Heads: 6:30 PM to 8:00 PM, headcount not given$/m);
+  assert.match(summary, /- FRC 99934 Test Heads: 6:30 PM to 8:00 PM, 5 people$/m);
   const { visitReportValues } = await import("../src/api/visits-reports.ts");
   const { visitReportFields } = await import("../src/shared/visits-report-fields.ts");
-  const record = { id: "b1", date: "2026-11-02", arrival: "18:30", departure: "20:00", durationMinutes: 90, teamNumber: "1234", teamName: "Gear Heads", program: "FRC" as const, status: "booked" as const, recordedInOutreach: false };
+  const record = { id: "b1", date: "2026-11-02", arrival: "18:30", departure: "20:00", durationMinutes: 90, teamNumber: "99934", teamName: "Test Heads", program: "FRC" as const, status: "booked" as const, recordedInOutreach: false };
   assert.deepEqual(visitReportValues({ ...record, headcount: null })[visitReportFields.headcount], { text: headcountNotGiven, sortValue: null, empty: true }, "Core sorts null after every number and treats it as empty");
   assert.deepEqual(visitReportValues({ ...record, headcount: 8 })[visitReportFields.headcount], { text: "8", sortValue: 8 });
 });

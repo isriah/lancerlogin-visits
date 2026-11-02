@@ -53,21 +53,21 @@ test("Discord messages are queued only while Guest Visits messages are on and Di
   assert.equal(harness.count("SELECT COUNT(*) AS n FROM visits_notifications WHERE channel='discord'"), 0);
   await enableDiscord(harness);
   harness.discord.readyValue = false;
-  await book(harness, { teamNumber: "2", teamName: "Two", contactEmail: "two@example.org" });
+  await book(harness, { teamNumber: "99902", teamName: "Two", contactEmail: "two@example.org" });
   assert.equal(harness.count("SELECT COUNT(*) AS n FROM visits_notifications WHERE channel='discord'"), 0);
   harness.discord.readyValue = true;
-  await book(harness, { teamNumber: "3", teamName: "@everyone **bold**", contactEmail: "three@example.org" });
+  await book(harness, { teamNumber: "99903", teamName: "@everyone **bold**", contactEmail: "three@example.org" });
   assert.equal(harness.discord.posts.length, 1);
   const [post] = harness.discord.posts;
   assert.equal(post!.path, `/channels/${channel}/messages`);
   assert.deepEqual(post!.body.allowed_mentions, { parse: [] });
   assert.equal(post!.body.enforce_nonce, true);
   assert.match(post!.body.nonce, /^[0-9a-f]{25}$/);
-  assert.match(post!.body.content, /^New guest visit: FRC 3 @​everyone \\\*\\\*bold\\\*\\\* - Monday, November 2, 6:30 PM to 8:00 PM - 12 people$/);
+  assert.match(post!.body.content, /^New guest visit: FRC 99903 @​everyone \\\*\\\*bold\\\*\\\* - Monday, November 2, 6:30 PM to 8:00 PM - 12 people$/);
   assert.doesNotMatch(post!.body.content, /three@example\.org|555|Two mentors/);
   // A guest change and cancellation each post once.
   const token = FakeEmail.token(harness.email.sent.at(-1)!);
-  const booking = harness.db.rows<{ id: string }>("SELECT b.id FROM visits_bookings b JOIN visits_teams t ON t.id=b.team_id WHERE t.number='3'")[0]!;
+  const booking = harness.db.rows<{ id: string }>("SELECT b.id FROM visits_bookings b JOIN visits_teams t ON t.id=b.team_id WHERE t.number='99903'")[0]!;
   await harness.call("POST", "/public/visits/manage/update", { body: { token, edit: { revision: 0, headcount: 4 } }, role: null });
   await harness.call("POST", "/public/visits/manage/cancel", { body: { token, revision: 1 }, role: null });
   assert.deepEqual(harness.discord.posts.map((item) => item.body.content.split(":")[0]), ["New guest visit", "Guest visit changed (headcount)", "Guest visit canceled"]);
@@ -78,7 +78,7 @@ test("Discord messages are queued only while Guest Visits messages are on and Di
   assert.equal(harness.discord.posts.length, 3);
   // Turning messages off skips what is still queued.
   harness.discord.failures.push({ status: 500 });
-  await book(harness, { teamNumber: "4", teamName: "Four", contactEmail: "four@example.org" });
+  await book(harness, { teamNumber: "99904", teamName: "Four", contactEmail: "four@example.org" });
   const settings = (await harness.call("GET", "/admin/visits/settings")).body;
   await harness.call("PUT", "/admin/visits/settings", { body: { revision: settings.revision, discordEnabled: false } });
   harness.clock.now += 600_000;
@@ -149,7 +149,7 @@ test("a refused email fails at once and needs attention until staff handle it; R
   assert.equal(harness.email.sent.length, 1);
   // Without a verified Resend connection bookings still save, and email waits.
   harness.email.readyValue = false;
-  await book(harness, { teamNumber: "2", teamName: "Two", contactEmail: "two@example.org" });
+  await book(harness, { teamNumber: "99902", teamName: "Two", contactEmail: "two@example.org" });
   assert.equal(notifications(harness).at(-1)!.status, "pending");
   assert.equal(notifications(harness).at(-1)!.attempts, 0);
   assert.equal((await harness.call("GET", "/admin/visits/status")).body.email.ready, false);
@@ -165,7 +165,7 @@ test("the job takes back rows whose sender stopped, but never a row another send
   await withShopSeries(harness);
   harness.email.readyValue = false;
   await book(harness);
-  await book(harness, { teamNumber: "2", teamName: "Two", contactEmail: "two@example.org" });
+  await book(harness, { teamNumber: "99902", teamName: "Two", contactEmail: "two@example.org" });
   const [first, second] = harness.db.rows<{ id: string }>("SELECT id FROM visits_notifications ORDER BY created_at, rowid");
   const now = harness.clock.now;
   harness.db.sqlite.prepare("UPDATE visits_notifications SET status='sending', lease_token='lease-token-expired', lease_expires_ms=?, next_attempt_ms=NULL, attempts=1 WHERE id=?").run(now - 1, first!.id);
@@ -184,7 +184,7 @@ test("the weekly summary posts once per report date at the local time, across da
   await withShopSeries(harness);
   await enableDiscord(harness);
   await book(harness, { date: "2026-10-27", arrival: "18:00", departure: "19:00" });
-  await book(harness, { teamNumber: "2", teamName: "Second", contactEmail: "two@example.org", date: "2026-11-04", arrival: "19:00", departure: "20:30", headcount: 1 });
+  await book(harness, { teamNumber: "99902", teamName: "Second", contactEmail: "two@example.org", date: "2026-11-04", arrival: "19:00", departure: "20:30", headcount: 1 });
   harness.discord.posts.length = 0;
   // Monday October 26, 12:00 EDT is 16:00 UTC.
   harness.clock.now = Date.parse("2026-10-26T15:59:00Z");
@@ -194,7 +194,7 @@ test("the weekly summary posts once per report date at the local time, across da
   harness.clock.now += 300_000;
   assert.equal((await harness.job()).summary, "done");
   assert.equal(harness.discord.posts.length, 1);
-  assert.equal(harness.discord.posts[0]!.body.content, "**Guest visits from Monday, October 26 to Monday, November 2**\n\n**Tuesday, October 27**\n- FRC 1234 Gearheads: 6:00 PM to 7:00 PM, 12 people");
+  assert.equal(harness.discord.posts[0]!.body.content, "**Guest visits from Monday, October 26 to Monday, November 2**\n\n**Tuesday, October 27**\n- FRC 99934 Testheads: 6:00 PM to 7:00 PM, 12 people");
   // After clocks fall back, Monday 12:00 EST is 17:00 UTC. A missed pass posts late, once.
   harness.clock.now = Date.parse("2026-11-02T16:30:00Z");
   assert.equal((await harness.job()).summary, "done");
@@ -202,7 +202,7 @@ test("the weekly summary posts once per report date at the local time, across da
   await harness.job();
   await harness.job();
   assert.equal(harness.discord.posts.length, 2);
-  assert.equal(harness.discord.posts[1]!.body.content, "**Guest visits from Monday, November 2 to Monday, November 9**\n\n**Wednesday, November 4**\n- FRC 2 Second: 7:00 PM to 8:30 PM, 1 person");
+  assert.equal(harness.discord.posts[1]!.body.content, "**Guest visits from Monday, November 2 to Monday, November 9**\n\n**Wednesday, November 4**\n- FRC 99902 Second: 7:00 PM to 8:30 PM, 1 person");
   assert.deepEqual(harness.db.rows("SELECT summary_date, status FROM visits_notifications WHERE kind='weekly-summary' ORDER BY summary_date").map((row) => ({ ...row })), [
     { summary_date: "2026-10-26", status: "delivered" }, { summary_date: "2026-11-02", status: "delivered" },
   ]);

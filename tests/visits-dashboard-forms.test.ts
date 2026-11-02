@@ -10,7 +10,7 @@ import {
 import type { StaffBooking, VisitsSettings } from "../src/shared/visits-api.ts";
 
 const filled: BookingDraft = {
-  program: "FRC", teamNumber: "0321", teamName: "  Lancers ", contactName: "Sam  Coach", contactEmail: " coach@example.org ", contactPhone: "",
+  program: "FRC", teamNumber: "099921", teamName: "  Test Team Alpha ", contactName: "Sam  Coach", contactEmail: " coach@example.org ", contactPhone: "",
   windowId: "w1", arrival: "18:00", departure: "20:00", headcount: "6", note: "",
 };
 
@@ -29,7 +29,7 @@ test("API failures keep the message and field, and mark retryable failures", () 
 test("a complete booking form has no problems and becomes a request the Worker accepts", () => {
   assert.deepEqual(validateBookingDraft(filled, "2026-11-02"), {});
   const request = bookingRequest(filled, "2026-11-02");
-  assert.deepEqual(request, { teamNumber: "321", teamName: "Lancers", program: "FRC", contactName: "Sam Coach", contactEmail: "coach@example.org", date: "2026-11-02", arrival: "18:00", departure: "20:00", headcount: 6 });
+  assert.deepEqual(request, { teamNumber: "99921", teamName: "Test Team Alpha", program: "FRC", contactName: "Sam Coach", contactEmail: "coach@example.org", date: "2026-11-02", arrival: "18:00", departure: "20:00", headcount: 6 });
   const parsed = parseBookingInput({ ...request, submissionKey: "0123456789abcdef-key" });
   assert.ok(parsed.ok, JSON.stringify(parsed));
   const withOptional = bookingRequest({ ...filled, contactPhone: " 555-123-4567 ", note: " Bringing our robot " }, "2026-11-02");
@@ -74,7 +74,7 @@ test("live booking checks: phone symbols, team numbers by program and headcount 
   for (const phone of ["555-010-0199 x123", "555-010-0199 ext. 123", "555-010-0199 extension 4", "555-HELP-NOW"]) assert.equal(check("contactPhone", { contactPhone: phone }), "Enter the phone number without letters or an extension", phone);
   assert.equal(check("contactPhone", { contactPhone: "555-010-0199 #12" }), "Use only digits, spaces, dots, hyphens, parentheses and a leading +");
   assert.equal(check("contactPhone", { contactPhone: "010-99" }), "Enter a phone number with its area code, or leave it empty");
-  assert.equal(check("teamNumber", { teamNumber: "254" }), undefined);
+  assert.equal(check("teamNumber", { teamNumber: "99954" }), undefined);
   assert.equal(check("teamNumber", { teamNumber: "123456" }), undefined);
   assert.equal(check("teamNumber", { teamNumber: "1234567" }), "Team numbers are at most 6 digits");
   assert.equal(check("teamNumber", { teamNumber: "ROBO-7" }), "FRC team numbers are digits only");
@@ -168,21 +168,21 @@ test("a retry of the same booking keeps its submission key; a changed booking ge
 });
 
 test("the team lookup runs only for a valid number and fills only an empty or looked-up name", () => {
-  assert.equal(lookupNumber("", "321"), null);
+  assert.equal(lookupNumber("", "99921"), null);
   assert.equal(lookupNumber("FRC", "32a"), null);
-  assert.equal(lookupNumber("FRC", "0321"), "321");
+  assert.equal(lookupNumber("FRC", "099921"), "99921");
   assert.equal(lookupNumber("Other", "99x"), "99X");
-  assert.equal(teamLookupQuery("Challenge", "12345"), "program=Challenge&number=12345");
-  const found = { number: "321", name: "Lancers", program: "FRC" as const };
-  assert.equal(lookupFill(found, "", null), "Lancers");
-  assert.equal(lookupFill(found, "Old lookup", "Old lookup"), "Lancers");
+  assert.equal(teamLookupQuery("Challenge", "99945"), "program=Challenge&number=99945");
+  const found = { number: "99921", name: "Test Team Alpha", program: "FRC" as const };
+  assert.equal(lookupFill(found, "", null), "Test Team Alpha");
+  assert.equal(lookupFill(found, "Old lookup", "Old lookup"), "Test Team Alpha");
   assert.equal(lookupFill(found, "Typed by hand", null), null, "a typed name stays");
   assert.equal(lookupFill(null, "Old lookup", "Old lookup"), "", "a looked-up name clears when the number no longer matches");
   assert.equal(lookupFill(null, "Typed by hand", "Old lookup"), null);
 });
 
 const booking: StaffBooking = {
-  id: "b1", revision: 4, status: "booked", team: { id: "t1", number: "321", name: "Lancers", program: "FRC" }, windowId: "w1", windowTitle: "Open shop",
+  id: "b1", revision: 4, status: "booked", team: { id: "t1", number: "99921", name: "Test Team Alpha", program: "FRC" }, windowId: "w1", windowTitle: "Open shop",
   date: "2026-11-02", arrival: "18:00", departure: "20:00", arrivalMs: 0, departureMs: 7_200_000, headcount: 6, note: "Robot", contactName: "Sam Coach",
   contactEmail: "coach@example.org", contactPhone: "", attention: { state: "none", reason: null }, email: "sent", outreach: null, createdMs: 0, updatedMs: 0,
 };
@@ -238,7 +238,7 @@ test("availability drafts become series or window requests checked by the Worker
 });
 
 test("settings updates carry only changed fields with the revision", () => {
-  const saved: VisitsSettings = { revision: 2, hostName: "FRC 321 RoboLancers", introText: "Welcome", replyTo: "", testEmailSentMs: null, discordEnabled: false, discordChannelId: "", weeklySummaryEnabled: true, weeklySummaryWeekday: 1, weeklySummaryTime: "12:00", headcountRequired: false };
+  const saved: VisitsSettings = { revision: 2, hostName: "FRC 99921 Test Team Alpha", introText: "Welcome", replyTo: "", testEmailSentMs: null, discordEnabled: false, discordChannelId: "", weeklySummaryEnabled: true, weeklySummaryWeekday: 1, weeklySummaryTime: "12:00", headcountRequired: false };
   assert.deepEqual(settingsUpdate(saved, { ...saved, headcountRequired: true }, ["hostName", "introText", "headcountRequired"]), { revision: 2, headcountRequired: true });
   assert.equal(settingsUpdate(saved, saved, ["introText", "replyTo"]), null);
   assert.deepEqual(settingsUpdate(saved, { ...saved, introText: "Hello", discordEnabled: true }, ["introText", "replyTo"]), { revision: 2, introText: "Hello" });

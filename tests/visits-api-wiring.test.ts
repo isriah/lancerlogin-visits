@@ -54,13 +54,13 @@ test("team search asks services.first for every FIRST program, and the job never
   await db.batch(api.freshEnable!(db as never, { installationId: "primary", now: "2026-10-28T15:00:00.000Z" }) as never);
   const first = new FakeFirstConnection();
   first.configure("FRC");
-  first.team("FRC", "9001", "Test Team Alpha", "Testville, PA");
+  first.team("FRC", "99901", "Test Team Alpha", "Testville, PA");
   const services = context(db, "GET", "/", undefined, undefined, first).services;
   await api.jobs!["visits.notifications"]!({ db: db as never, env: {}, services: services as never });
   assert.deepEqual(first.searches, [], "the job sends nothing to FIRST");
-  const response = await api.routes!["/public/visits"]!(context(db, "GET", "/public/visits/team-search?number=9001", undefined, undefined, first) as never);
-  assert.deepEqual(await response!.json(), { matches: [{ number: "9001", name: "Test Team Alpha", program: "FRC", location: "Testville, PA", source: "first" }], complete: false });
-  assert.deepEqual(first.searches, [{ number: "9001", programs: ["FRC", "FTC", "Challenge", "Explore"] }]);
+  const response = await api.routes!["/public/visits"]!(context(db, "GET", "/public/visits/team-search?number=99901", undefined, undefined, first) as never);
+  assert.deepEqual(await response!.json(), { matches: [{ number: "99901", name: "Test Team Alpha", program: "FRC", location: "Testville, PA", source: "first" }], complete: false });
+  assert.deepEqual(first.searches, [{ number: "99901", programs: ["FRC", "FTC", "Challenge", "Explore"] }]);
 });
 
 test("routes, the job and the report run through Core's context with the installation time zone", async () => {
@@ -75,12 +75,12 @@ test("routes, the job and the report run through Core's context with the install
   assert.equal((await api.routes!["/module-setup/visits"]!(context(db, "GET", "/module-setup/visits/status") as never))!.status, 200);
   const pass = await api.jobs!["visits.notifications"]!({ db: db as never, env: {}, services: context(db, "GET", "/").services as never }) as { summary: string };
   assert.equal(pass.summary, "off");
-  db.exec(`INSERT INTO visits_teams(installation_id,id,number,name,program,created_at,updated_at) VALUES('primary','team-1','321','RoboLancers','FRC','x','x');
+  db.exec(`INSERT INTO visits_teams(installation_id,id,number,name,program,created_at,updated_at) VALUES('primary','team-1','99921','Test Team Alpha','FRC','x','x');
     INSERT INTO visits_bookings(installation_id,id,window_id,team_id,contact_name,contact_email,arrival_ms,departure_ms,headcount,created_at,updated_at)
     SELECT 'primary','booking-1',id,'team-1','Pat','pat@example.org',start_ms,start_ms+3600000,4,'x','x' FROM visits_windows ORDER BY start_ms LIMIT 1;`);
   const definition = { columns: [{ key: "visits.booking.date" }, { key: "visits.booking.team-name" }, { key: "visits.booking.duration" }], sort: { column: { key: "visits.booking.date" }, direction: "desc" } };
   const rows = await api.reports!["visits.bookings"]!(db as never, definition as never, { to: "2027-12-31", today: "2026-10-28" });
-  assert.deepEqual(rows.map((row) => [row.id, row.label, row.href, Object.values(row.cells).map((cell) => cell.text)]), [["booking-1", "FRC 321 RoboLancers on 2027-11-01", "/visits", ["2027-11-01", "RoboLancers", "60"]]]);
+  assert.deepEqual(rows.map((row) => [row.id, row.label, row.href, Object.values(row.cells).map((cell) => cell.text)]), [["booking-1", "FRC 99921 Test Team Alpha on 2027-11-01", "/visits", ["2027-11-01", "Test Team Alpha", "60"]]]);
   assert.deepEqual(await api.reports!["visits.bookings"]!(db as never, definition as never, { from: "2027-11-02", to: "2027-12-31", today: "2026-10-28" }), []);
 });
 

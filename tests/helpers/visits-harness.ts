@@ -272,7 +272,7 @@ let keys = 0;
 export function bookingRequest(overrides: Record<string, unknown> = {}) {
   keys += 1;
   return {
-    teamNumber: "1234", teamName: "Gearheads", program: "FRC", contactName: "Pat Coach", contactEmail: "pat@example.org", contactPhone: "555-010-1234",
+    teamNumber: "99934", teamName: "Testheads", program: "FRC", contactName: "Pat Coach", contactEmail: "pat@example.org", contactPhone: "555-010-1234",
     date: "2026-11-02", arrival: "18:30", departure: "20:00", headcount: 12, note: "Two mentors drive", submissionKey: `submission-key-${String(keys).padStart(6, "0")}`,
     ...overrides,
   };

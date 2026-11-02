@@ -130,8 +130,8 @@ const guestWindow = (id: string, date: string, startTime: string, endTime: strin
 
 test("guest calendar days are open, canceled or closed by what a guest can still book", () => {
   const days = guestDays([
-    guestWindow("a", "2026-10-29", "16:00", "20:00", "open", 1, "Build night", ["321 RoboLancers"]),
-    guestWindow("b", "2026-10-29", "10:00", "12:00", "open", 2, "", ["1218 SCH Robotics", "321 RoboLancers"]),
+    guestWindow("a", "2026-10-29", "16:00", "20:00", "open", 1, "Build night", ["99921 Test Team Alpha"]),
+    guestWindow("b", "2026-10-29", "10:00", "12:00", "open", 2, "", ["99918 Test Team Delta", "99921 Test Team Alpha"]),
     guestWindow("c", "2026-10-31", "16:00", "20:00", "canceled", 0, "Drive practice"),
     guestWindow("d", "2026-10-28", "09:00", "11:00", "open", 3),
     guestWindow("e", "2026-11-05", "16:00", "20:00", "open"),
@@ -139,7 +139,7 @@ test("guest calendar days are open, canceled or closed by what a guest can still
   ].sort((left, right) => (left.local.date + left.local.startTime).localeCompare(right.local.date + right.local.startTime)), new Set(["a", "b", "e"]));
   assert.deepEqual(days.get("2026-10-29"), {
     date: "2026-10-29", state: "open", openWindows: 2, teams: 3, startTime: "10:00", endTime: "20:00",
-    titles: ["Build night"], teamLabels: ["1218 SCH Robotics", "321 RoboLancers"],
+    titles: ["Build night"], teamLabels: ["99918 Test Team Delta", "99921 Test Team Alpha"],
   }, "a team coming to two windows is named once, in the order teams come");
   assert.deepEqual(days.get("2026-10-31"), { date: "2026-10-31", state: "canceled", openWindows: 0, teams: 0, startTime: "16:00", endTime: "20:00", titles: ["Drive practice"], teamLabels: [] });
   assert.equal(days.get("2026-10-28")!.state, "closed", "a window that can no longer be booked closes its day");
@@ -150,29 +150,29 @@ test("guest calendar days are open, canceled or closed by what a guest can still
   assert.equal(guestDayText(days.get("2026-10-31")), "Canceled");
   assert.equal(guestDayText(days.get("2026-10-28")), "No open times left");
   assert.equal(guestDayText(undefined), "No open times");
-  assert.equal(guestTeamLabel({ teamNumber: "321", teamName: "RoboLancers" }), "321 RoboLancers");
+  assert.equal(guestTeamLabel({ teamNumber: "99921", teamName: "Test Team Alpha" }), "99921 Test Team Alpha");
 });
 
 test("a canceled window lends its day no teams", () => {
-  const days = guestDays([guestWindow("a", "2026-11-05", "16:00", "20:00", "canceled", 1, "", ["321 RoboLancers"]), guestWindow("b", "2026-11-05", "08:00", "09:00", "open")], new Set(["b"]));
+  const days = guestDays([guestWindow("a", "2026-11-05", "16:00", "20:00", "canceled", 1, "", ["99921 Test Team Alpha"]), guestWindow("b", "2026-11-05", "08:00", "09:00", "open")], new Set(["b"]));
   assert.deepEqual(days.get("2026-11-05")!.teamLabels, []);
   assert.deepEqual(days.get("2026-11-05")!.titles, [], "blank titles are left out");
 });
 
 const openDay = (fields: Partial<GuestDay> = {}): GuestDay => ({
   date: "2026-11-05", state: "open", openWindows: 1, teams: 3, startTime: "18:00", endTime: "20:30", titles: ["Build night"],
-  teamLabels: ["321 RoboLancers", "1218 SCH Robotics", "11 MORT"], ...fields,
+  teamLabels: ["99921 Test Team Alpha", "99918 Test Team Delta", "99911 Test Team Zeta"], ...fields,
 });
 const cellText = (day: GuestDay | undefined, room: number) => guestCellLines(day, room).map((line) => line.text);
 
 test("a guest calendar cell lists hours, titles and teams, ending in +N more when the teams do not fit", () => {
-  assert.deepEqual(cellText(openDay(), 6), ["6 PM to 8:30 PM", "Build night", "321 RoboLancers", "1218 SCH Robotics", "11 MORT"]);
-  assert.deepEqual(cellText(openDay(), 5), ["6 PM to 8:30 PM", "Build night", "321 RoboLancers", "1218 SCH Robotics", "11 MORT"], "exactly enough room");
-  assert.deepEqual(cellText(openDay(), 4), ["6 PM to 8:30 PM", "Build night", "321 RoboLancers", "+2 more"]);
+  assert.deepEqual(cellText(openDay(), 6), ["6 PM to 8:30 PM", "Build night", "99921 Test Team Alpha", "99918 Test Team Delta", "99911 Test Team Zeta"]);
+  assert.deepEqual(cellText(openDay(), 5), ["6 PM to 8:30 PM", "Build night", "99921 Test Team Alpha", "99918 Test Team Delta", "99911 Test Team Zeta"], "exactly enough room");
+  assert.deepEqual(cellText(openDay(), 4), ["6 PM to 8:30 PM", "Build night", "99921 Test Team Alpha", "+2 more"]);
   assert.deepEqual(guestCellLines(openDay(), 4).map((line) => line.kind), ["time", "title", "team", "more"]);
   assert.deepEqual(cellText(openDay(), 3), ["6 PM to 8:30 PM", "Build night", "3 teams"], "with no room for a name, the count");
   assert.deepEqual(cellText(openDay(), 2), ["6 PM to 8:30 PM", "3 teams"], "the teams keep a line before the title does");
-  assert.deepEqual(cellText(openDay({ teamLabels: ["321 RoboLancers"] }), 2), ["6 PM to 8:30 PM", "321 RoboLancers"]);
+  assert.deepEqual(cellText(openDay({ teamLabels: ["99921 Test Team Alpha"] }), 2), ["6 PM to 8:30 PM", "99921 Test Team Alpha"]);
   assert.deepEqual(cellText(openDay(), 1), ["6 PM to 8:30 PM"]);
   assert.deepEqual(cellText(openDay(), 0), [], "phones hide the lines, which measures as no room");
   assert.deepEqual(cellText(openDay({ openWindows: 2, titles: ["Build night", "Drive practice"], teamLabels: [] }), 4), ["2 times", "Build night", "Drive practice"]);

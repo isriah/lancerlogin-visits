@@ -93,20 +93,20 @@ test("the summary lists booked visits not ended by the report time and starting 
 
 test("the summary groups visits by local day and leaves contacts and notes out", () => {
   const visits = selectSummaryVisits([
-    { status: "booked", arrivalMs: at("2026-11-04T23:00:00Z"), departureMs: at("2026-11-05T01:00:00Z"), headcount: 1, team: team("16072", "Quantum", "FTC"), contactEmail: "a@example.org", note: "secret" },
-    { status: "booked", arrivalMs: at("2026-11-02T23:30:00Z"), departureMs: at("2026-11-03T01:00:00Z"), headcount: 12, team: team("1234", "Gear Heads") },
-    { status: "booked", arrivalMs: at("2026-11-03T00:00:00Z"), departureMs: at("2026-11-03T02:00:00Z"), headcount: 4, team: team("45", "@everyone **Bricks**", "Explore") },
+    { status: "booked", arrivalMs: at("2026-11-04T23:00:00Z"), departureMs: at("2026-11-05T01:00:00Z"), headcount: 1, team: team("99972", "Test Quanta", "FTC"), contactEmail: "a@example.org", note: "secret" },
+    { status: "booked", arrivalMs: at("2026-11-02T23:30:00Z"), departureMs: at("2026-11-03T01:00:00Z"), headcount: 12, team: team("99934", "Test Heads") },
+    { status: "booked", arrivalMs: at("2026-11-03T00:00:00Z"), departureMs: at("2026-11-03T02:00:00Z"), headcount: 4, team: team("99946", "@everyone **Bricks**", "Explore") },
   ], reportMs, nextReportMs);
   const zeroWidthSpace = String.fromCharCode(0x200b);
   assert.equal(formatWeeklySummary(civil, newYork, { reportDate: "2026-11-02", nextReportDate: "2026-11-09", visits }), [
     "**Guest visits from Monday, November 2 to Monday, November 9**",
     "",
     "**Monday, November 2**",
-    "- FRC 1234 Gear Heads: 6:30 PM to 8:00 PM, 12 people",
-    `- FLL Explore 45 @${zeroWidthSpace}everyone \\*\\*Bricks\\*\\*: 7:00 PM to 9:00 PM, 4 people`,
+    "- FRC 99934 Test Heads: 6:30 PM to 8:00 PM, 12 people",
+    `- FLL Explore 99946 @${zeroWidthSpace}everyone \\*\\*Bricks\\*\\*: 7:00 PM to 9:00 PM, 4 people`,
     "",
     "**Wednesday, November 4**",
-    "- FTC 16072 Quantum: 6:00 PM to 8:00 PM, 1 person",
+    "- FTC 99972 Test Quanta: 6:00 PM to 8:00 PM, 1 person",
   ].join("\n"));
 });
 
@@ -114,7 +114,7 @@ test("an empty week still posts, and a long week fits one Discord message", () =
   assert.equal(emptyWeekText, "No guest visits scheduled this week");
   assert.equal(formatWeeklySummary(civil, newYork, { reportDate: "2026-11-02", nextReportDate: "2026-11-09", visits: [] }), `**Guest visits from Monday, November 2 to Monday, November 9**\n${emptyWeekText}`);
   const many = Array.from({ length: 60 }, (_, index): SummaryVisit => ({
-    status: "booked", arrivalMs: reportMs + 3_600_000 * (index + 1), departureMs: reportMs + 3_600_000 * (index + 2), headcount: 10, team: team(String(1000 + index), "A team with a fairly long name for testing"),
+    status: "booked", arrivalMs: reportMs + 3_600_000 * (index + 1), departureMs: reportMs + 3_600_000 * (index + 2), headcount: 10, team: team(String(99900 + index), "A team with a fairly long name for testing"),
   }));
   const message = formatWeeklySummary(civil, newYork, { reportDate: "2026-11-02", nextReportDate: "2026-11-09", visits: many });
   assert.ok(message.length <= 2000, String(message.length));

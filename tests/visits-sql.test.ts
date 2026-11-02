@@ -143,16 +143,16 @@ test("a window change guests can see moves its revision forward by exactly one",
 
 test("teams use Outreach's programs, program-specific numbers and one active team per program and number", async () => {
   const db = createTestDatabase();
-  for (const [index, program] of ["FRC", "FTC", "Challenge", "Explore"].entries()) await insert(db, "visits_teams", teamRow({ id: `team-${index}`, program, number: "321" }));
+  for (const [index, program] of ["FRC", "FTC", "Challenge", "Explore"].entries()) await insert(db, "visits_teams", teamRow({ id: `team-${index}`, program, number: "99921" }));
   await insert(db, "visits_teams", teamRow({ id: "other", program: "Other", number: "99X-B" }));
-  await assert.rejects(insert(db, "visits_teams", teamRow({ id: "duplicate", program: "FRC", number: "321", name: "Copy" })), unique);
-  await insert(db, "visits_teams", teamRow({ id: "archived", program: "FRC", number: "321", name: "Merged copy", archived: 1 }));
+  await assert.rejects(insert(db, "visits_teams", teamRow({ id: "duplicate", program: "FRC", number: "99921", name: "Copy" })), unique);
+  await insert(db, "visits_teams", teamRow({ id: "archived", program: "FRC", number: "99921", name: "Merged copy", archived: 1 }));
   const bad = [
-    { program: "FLL" }, { program: "other" }, { number: "0321" }, { number: "12a" }, { number: "1234567" }, { number: "" },
-    { program: "Other", number: "99x" }, { program: "Other", number: "ABCDEFGHIJK" }, { name: "" }, { program: "Other", number: "7", outreach_team_id: "o-1" },
+    { program: "FLL" }, { program: "other" }, { number: "099921" }, { number: "12a" }, { number: "1234567" }, { number: "" },
+    { program: "Other", number: "99x" }, { program: "Other", number: "ABCDEFGHIJK" }, { name: "" }, { program: "Other", number: "99907", outreach_team_id: "o-1" },
   ];
-  for (const [index, values] of bad.entries()) await assert.rejects(insert(db, "visits_teams", teamRow({ id: `bad-${index}`, number: String(9000 + index), ...values })), check, JSON.stringify(values));
-  await insert(db, "visits_teams", teamRow({ id: "linked", number: "4000", outreach_team_id: "outreach-team-7" }));
+  for (const [index, values] of bad.entries()) await assert.rejects(insert(db, "visits_teams", teamRow({ id: `bad-${index}`, number: String(99900 + index), ...values })), check, JSON.stringify(values));
+  await insert(db, "visits_teams", teamRow({ id: "linked", number: "99940", outreach_team_id: "outreach-team-7" }));
 });
 
 test("bookings check their fields and reference their window and team", async () => {
@@ -296,7 +296,7 @@ test("the Worker's lookups use the schema's indexes", () => {
   assert.match(plan(db, "SELECT id FROM visits_notifications WHERE installation_id=? AND status='sending' AND lease_expires_ms<=?", "primary", 0), /visits_notifications_lease|visits_notifications_due/);
   assert.match(plan(db, "SELECT status FROM visits_notifications WHERE installation_id=? AND kind='weekly-summary' AND summary_date=?", "primary", "2026-11-02"), /visits_notifications_weekly_summary/);
   assert.match(plan(db, "SELECT id FROM visits_notifications WHERE installation_id=? AND booking_id=?", "primary", "b"), /visits_notifications_booking/);
-  assert.match(plan(db, "SELECT id FROM visits_teams WHERE installation_id=? AND program=? AND number=? AND archived=0", "primary", "FRC", "321"), /visits_teams_number/);
+  assert.match(plan(db, "SELECT id FROM visits_teams WHERE installation_id=? AND program=? AND number=? AND archived=0", "primary", "FRC", "99921"), /visits_teams_number/);
   assert.match(plan(db, "DELETE FROM visits_public_submission_keys WHERE installation_id=? AND created_ms<?", "primary", 0), /visits_public_submission_keys_created/);
   assert.match(plan(db, "DELETE FROM visits_manage_tokens WHERE installation_id=? AND expires_ms<?", "primary", 0), /visits_manage_tokens_expiry/);
   assert.match(plan(db, "DELETE FROM visits_email_limits WHERE installation_id=? AND local_day<?", "primary", "2026-11-01"), /visits_email_limits_day/);

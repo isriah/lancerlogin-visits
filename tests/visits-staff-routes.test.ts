@@ -178,13 +178,13 @@ test("guest teams: rename, and merge a duplicate whose visits move with history"
   const harness = visitsHarness();
   await withShopSeries(harness);
   const first = await book(harness);
-  await book(harness, { teamNumber: "1243", teamName: "Gear heads", contactEmail: "typo@example.org" });
-  await book(harness, { teamNumber: "8", teamName: "FTC Eight", program: "FTC", contactEmail: "eight@example.org" });
+  await book(harness, { teamNumber: "99943", teamName: "Test heads", contactEmail: "typo@example.org" });
+  await book(harness, { teamNumber: "99908", teamName: "FTC Eight", program: "FTC", contactEmail: "eight@example.org" });
   const teams = (await harness.call("GET", "/admin/visits/teams")).body;
-  const keep = teams.find((team: { number: string }) => team.number === "1234");
-  const duplicate = teams.find((team: { number: string }) => team.number === "1243");
+  const keep = teams.find((team: { number: string }) => team.number === "99934");
+  const duplicate = teams.find((team: { number: string }) => team.number === "99943");
   const ftc = teams.find((team: { number: string }) => team.program === "FTC");
-  assert.equal((await harness.call("PUT", `/admin/visits/teams/${keep.id}`, { body: { name: " The Gearheads ", revision: 0 } })).body.name, "The Gearheads");
+  assert.equal((await harness.call("PUT", `/admin/visits/teams/${keep.id}`, { body: { name: " The Testheads ", revision: 0 } })).body.name, "The Testheads");
   assert.equal((await harness.call("PUT", `/admin/visits/teams/${keep.id}`, { body: { name: "Stale", revision: 0 } })).status, 409);
   assert.equal((await harness.call("POST", `/admin/visits/teams/${duplicate.id}/merge`, { body: { intoId: ftc.id } })).status, 400);
   const merged = await harness.call("POST", `/admin/visits/teams/${duplicate.id}/merge`, { body: { intoId: keep.id } });
@@ -196,8 +196,8 @@ test("guest teams: rename, and merge a duplicate whose visits move with history"
   assert.equal(moved.revision, 1);
   assert.deepEqual((await detail(harness, moved.id)).history[0].changes, [{ field: "teamId", from: duplicate.id, to: keep.id }]);
   // The archived team's number is free again.
-  await book(harness, { teamNumber: "1243", teamName: "Real 1243", contactEmail: "real@example.org" });
-  assert.equal(harness.count("SELECT COUNT(*) AS n FROM visits_teams WHERE number='1243'"), 2);
+  await book(harness, { teamNumber: "99943", teamName: "Real 99943", contactEmail: "real@example.org" });
+  assert.equal(harness.count("SELECT COUNT(*) AS n FROM visits_teams WHERE number='99943'"), 2);
   assert.equal((await harness.call("POST", `/admin/visits/teams/${duplicate.id}/merge`, { body: { intoId: keep.id } })).status, 409);
 });
 
@@ -228,7 +228,7 @@ test("Admins change settings with the current revision; Discord needs a channel;
   assert.equal((await harness.call("PUT", "/admin/visits/settings", { body: { revision: 0, weeklySummaryTime: "25:00" } })).body.field, "weeklySummaryTime");
   assert.equal((await harness.call("PUT", "/admin/visits/settings", { body: { revision: 0, color: "red" } })).body.field, "color");
   assert.equal((await harness.call("PUT", "/admin/visits/settings", { body: { revision: 0, hostName: "x".repeat(81) } })).body.field, "hostName");
-  assert.equal((await harness.call("PUT", "/admin/visits/settings", { body: { revision: 0, hostName: 321 } })).body.field, "hostName");
+  assert.equal((await harness.call("PUT", "/admin/visits/settings", { body: { revision: 0, hostName: 99921 } })).body.field, "hostName");
   const saved = await harness.call("PUT", "/admin/visits/settings", { body: { revision: 0, introText: "Welcome,\r\nguests!", replyTo: " coach@example.org ", discordEnabled: true, discordChannelId: "123456789012345678" } });
   assert.equal(saved.status, 200);
   assert.deepEqual({ ...saved.body }, { ...initial, revision: 1, introText: "Welcome,\nguests!", replyTo: "coach@example.org", discordEnabled: true, discordChannelId: "123456789012345678" });
@@ -273,9 +273,9 @@ test("the visits.bookings report lists visits by local date within the report pe
   const harness = visitsHarness();
   await withShopSeries(harness);
   const first = await book(harness);
-  const second = await book(harness, { teamNumber: "7", teamName: "Lucky", program: "Challenge", contactEmail: "lucky@example.org", date: "2026-11-04", arrival: "18:00", departure: "20:30", headcount: 1 });
+  const second = await book(harness, { teamNumber: "99907", teamName: "Lucky", program: "Challenge", contactEmail: "lucky@example.org", date: "2026-11-04", arrival: "18:00", departure: "20:30", headcount: 1 });
   await harness.call("POST", `/admin/visits/bookings/${second.id}/cancel`, { body: { revision: 0 } });
-  const third = await book(harness, { teamNumber: "9", teamName: "Gone", contactEmail: "gone@example.org", date: "2026-11-09" });
+  const third = await book(harness, { teamNumber: "99909", teamName: "Gone", contactEmail: "gone@example.org", date: "2026-11-09" });
   await harness.call("DELETE", `/admin/visits/bookings/${third.id}?revision=0`);
   const records = await visitReportRecords(harness.db as never, civil, newYork, { to: "2026-12-31" });
   assert.deepEqual(records.map((record) => [record.id, record.date, record.status]), [[first.id, "2026-11-02", "booked"], [second.id, "2026-11-04", "canceled"]]);
@@ -286,7 +286,7 @@ test("the visits.bookings report lists visits by local date within the report pe
   assert.deepEqual(values[visitReportFields.duration], { text: "150", sortValue: 150 });
   assert.deepEqual(values[visitReportFields.program], { text: "FLL Challenge", sortValue: "fll challenge" });
   assert.deepEqual([values[visitReportFields.arrival]!.text, values[visitReportFields.departure]!.text, values[visitReportFields.status]!.text, values[visitReportFields.outreach]!.text], ["18:00", "20:30", "Canceled", "No"]);
-  assert.equal(visitReportLabel(records[1]!), "FLL Challenge 7 Lucky on 2026-11-04");
+  assert.equal(visitReportLabel(records[1]!), "FLL Challenge 99907 Lucky on 2026-11-04");
   assert.deepEqual(manifest.reportDatasets.map((dataset) => [dataset.id, dataset.capability, dataset.rowIdentity, dataset.filters]), [["visits.bookings", "visits.manage", "visits.booking.id", ["period"]]]);
 });
 
@@ -297,25 +297,25 @@ test("the host team's name from settings heads the guest page and names the host
   const first = await book(harness);
   assert.equal(harness.email.sent[0]!.subject, "Your visit to our team on Monday, November 2");
   assert.equal((await harness.call("GET", "/public/visits/calendar", { role: null })).body.hostName, "");
-  const saved = await harness.call("PUT", "/admin/visits/settings", { body: { revision: 0, hostName: "  FRC 321\r\nRoboLancers " } });
+  const saved = await harness.call("PUT", "/admin/visits/settings", { body: { revision: 0, hostName: "  FRC 99921\r\nTest Team Alpha " } });
   assert.equal(saved.status, 200);
-  assert.equal(saved.body.hostName, "FRC 321 RoboLancers");
-  assert.equal((await harness.call("GET", "/public/visits/calendar", { role: null })).body.hostName, "FRC 321 RoboLancers");
+  assert.equal(saved.body.hostName, "FRC 99921 Test Team Alpha");
+  assert.equal((await harness.call("GET", "/public/visits/calendar", { role: null })).body.hostName, "FRC 99921 Test Team Alpha");
   const token = FakeEmail.token(harness.email.sent[0]!);
-  assert.equal((await harness.call("POST", "/public/visits/manage", { body: { token }, role: null })).body.hostName, "FRC 321 RoboLancers");
+  assert.equal((await harness.call("POST", "/public/visits/manage", { body: { token }, role: null })).body.hostName, "FRC 99921 Test Team Alpha");
   // Every later email names the host in its subject and text, HTML-escaped in its HTML.
   await harness.call("PUT", `/admin/visits/bookings/${first.id}`, { body: { revision: 0, headcount: 14 } });
   const update = harness.email.sent.at(-1)!;
-  assert.equal(update.subject, "Updated: your visit to FRC 321 RoboLancers on Monday, November 2");
-  assert.match(update.text!, /Your visit to FRC 321 RoboLancers was changed \(headcount\)/);
-  await harness.call("PUT", "/admin/visits/settings", { body: { revision: 1, hostName: "Lancers <321> & friends" } });
+  assert.equal(update.subject, "Updated: your visit to FRC 99921 Test Team Alpha on Monday, November 2");
+  assert.match(update.text!, /Your visit to FRC 99921 Test Team Alpha was changed \(headcount\)/);
+  await harness.call("PUT", "/admin/visits/settings", { body: { revision: 1, hostName: "Test Team Alpha <99921> & friends" } });
   await harness.call("POST", `/admin/visits/bookings/${first.id}/cancel`, { body: { revision: 1 } });
   const canceled = harness.email.sent.at(-1)!;
-  assert.equal(canceled.subject, "Canceled: your visit to Lancers <321> & friends on Monday, November 2");
-  assert.match(canceled.html!, /Your visit to Lancers &lt;321&gt; &amp; friends is canceled/);
+  assert.equal(canceled.subject, "Canceled: your visit to Test Team Alpha <99921> & friends on Monday, November 2");
+  assert.match(canceled.html!, /Your visit to Test Team Alpha &lt;99921&gt; &amp; friends is canceled/);
   // Clearing the name goes back to "our team".
   await harness.call("PUT", "/admin/visits/settings", { body: { revision: 2, hostName: "" } });
-  await book(harness, { teamNumber: "8", teamName: "Eights", contactEmail: "eight@example.org" });
+  await book(harness, { teamNumber: "99908", teamName: "Eights", contactEmail: "eight@example.org" });
   assert.equal(harness.email.sent.at(-1)!.subject, "Your visit to our team on Monday, November 2");
 });
 
@@ -323,7 +323,7 @@ test("after a restore, a paused email puts its visit in Needs attention until st
   const harness = visitsHarness();
   await withShopSeries(harness);
   const first = await book(harness);
-  const second = await book(harness, { teamNumber: "8", teamName: "Eights", contactEmail: "eight@example.org" });
+  const second = await book(harness, { teamNumber: "99908", teamName: "Eights", contactEmail: "eight@example.org" });
   // A restore pauses waiting emails (neutralizeVisitsBackup); here both visits' latest emails are paused.
   harness.db.sqlite.exec("UPDATE visits_notifications SET status='paused',next_attempt_ms=NULL WHERE channel='email'");
   const sent = harness.email.sent.length;
