@@ -4,6 +4,7 @@ Every stable or beta release tag has a matching `vX.Y.Z.md` or `vX.Y.Z-beta.N.md
 
 List each release below as `- [vX.Y.Z](vX.Y.Z.md) - one-line summary`.
 
+- [v0.4.0](v0.4.0.md) - Removes the old Guest Visits FIRST credentials; install v0.3.0 first and use LancerLogin 2.1.0-beta.4 or later
 - [v0.3.0](v0.3.0.md) - Team lookup on the shared FIRST connection in Settings > Integrations
 - [v0.2.1](v0.2.1.md) - Add availability from a picked day, optional headcount and whole-window booking defaults
 - [v0.2.0](v0.2.0.md) - Book from a five-week calendar with team lookup by number
