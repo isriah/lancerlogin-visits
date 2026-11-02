@@ -41,8 +41,6 @@ export type VisitsOutreachAccess = {
   providerStatus(error: unknown): number | undefined;
 };
 
-/** A Guest Visits FIRST credential as Core imports it: the token's ciphertext under the integration key, never the token. */
-export type VisitsLegacyFirstCredential = { readonly program: "FRC" | "FTC"; readonly username: string; readonly ciphertext: string; readonly iv: string; readonly checkedAt: string };
 /**
  * Core's shared FIRST connection (module SDK 1.2.0), the parts Guest Visits uses. Structurally the SDK's
  * `services.first`: Core holds the credentials, caches the answers and applies the request limits, including the
@@ -51,14 +49,7 @@ export type VisitsLegacyFirstCredential = { readonly program: "FRC" | "FTC"; rea
 export type VisitsFirst = {
   status(): Promise<Readonly<Record<"FRC" | "FTC" | "Challenge" | "Explore", { readonly available: boolean; readonly checkedAt: string | null }>>>;
   searchTeams(input: { readonly number: string; readonly programs?: readonly ("FRC" | "FTC" | "Challenge" | "Explore")[] }): Promise<{ readonly results: readonly FirstSearchAnswer[]; readonly complete: boolean }>;
-  /** Deprecated migration aid for Guest Visits only: Core takes the credential when it has none for that program. */
-  importLegacyCredential(input: VisitsLegacyFirstCredential): Promise<"imported" | "kept-existing" | "unreadable">;
 };
-/**
- * Whether this Worker isolate has offered Guest Visits' saved FIRST credentials to Core yet. One object per isolate, so
- * the offer runs once there rather than on every lookup; `running` lets concurrent requests share one offer.
- */
-export type VisitsFirstImport = { settled: boolean; running?: Promise<void> };
 
 /** Everything a handler needs from Core besides the request, so tests can pass stand-ins and a controlled clock. */
 export type VisitsDeps = {
@@ -70,7 +61,6 @@ export type VisitsDeps = {
   readonly discord: VisitsDiscordService;
   readonly outreach: VisitsOutreachAccess;
   readonly first: VisitsFirst;
-  readonly firstImport: VisitsFirstImport;
   /** Where the dashboard is served, for manage links and the public origin check. */
   readonly dashboardOrigin: string | undefined;
 };

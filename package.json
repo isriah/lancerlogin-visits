@@ -20,7 +20,8 @@
       "dashboard": "./src/dashboard.tsx"
     },
     "migrations": "./migrations",
-    "adoptedCoreMigrations": []
+    "adoptedCoreMigrations": [],
+    "upgradeRequiresMigrations": ["0004_drop_first_caches.sql"]
   },
   "peerDependencies": {
     "@lancerlogin/module-sdk": "^1.2.0",

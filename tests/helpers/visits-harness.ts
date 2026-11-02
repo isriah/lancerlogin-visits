@@ -7,7 +7,7 @@ import { createTestDatabase, type TestDatabase } from "./d1.ts";
 import { civil, newYork } from "./civil-time.ts";
 import { processVisitsNotifications } from "../../src/api/visits-delivery.ts";
 import { visitsAdminRoute, visitsPublicRoute, visitsSetupRoute } from "../../src/api/visits-routes.ts";
-import type { VisitsDeps, VisitsFirst, VisitsFirstImport, VisitsLegacyFirstCredential, VisitsOutreachClient, VisitsRole } from "../../src/api/visits-runtime.ts";
+import type { VisitsDeps, VisitsFirst, VisitsOutreachClient, VisitsRole } from "../../src/api/visits-runtime.ts";
 import { defaultSettingsSql } from "../../src/shared/visits-storage.ts";
 
 export const dashboardOrigin = "https://visits.example.org";
@@ -168,20 +168,16 @@ type Unavailable = "not-configured" | "rate-limited" | "timeout" | "provider-err
  * Core's shared FIRST connection as `services.first` hands it to Guest Visits, answering from a synthetic team list. FRC
  * and FTC answer "not-configured" until they have a credential; FLL Challenge and Explore need none, as Core asks FIRST's
  * public team search for them, so they always answer. `failures` makes a program answer unavailable for another reason. `searchTeams` asks all four programs unless told which, like
- * Core's. `importLegacyCredential` behaves like Core's: "unreadable" for a ciphertext Core cannot decrypt, "kept-existing"
- * when the program already has a credential (an Admin's wins), otherwise the program takes it.
+ * Core's.
  */
 export class FakeFirstConnection implements VisitsFirst {
   readonly credentials = new Map<"FRC" | "FTC", { readonly username: string; readonly checkedAt: string }>();
   /** Synthetic teams by `${program}:${number}`. */
   readonly teams = new Map<string, { readonly name: string; readonly location: string }>();
   readonly failures = new Map<CoreFirstProgram, Unavailable>();
-  /** Ciphertexts Core's integration key cannot decrypt. */
-  readonly unreadable = new Set<string>();
   /** Set to make every call throw, as a Core that cannot answer would. */
   broken: Error | null = null;
   readonly searches: { number: string; programs: readonly string[] | undefined }[] = [];
-  readonly imports: VisitsLegacyFirstCredential[] = [];
 
   team(program: CoreFirstProgram, number: string, name: string, location = "") { this.teams.set(`${program}:${number}`, { name, location }); }
   configure(program: "FRC" | "FTC", username = "synthetic-admin", checkedAt = "2026-10-01T12:00:00.000Z") { this.credentials.set(program, { username, checkedAt }); }
@@ -205,15 +201,6 @@ export class FakeFirstConnection implements VisitsFirst {
     });
     return { results, complete: results.every((result) => result.status !== "unavailable") };
   }
-
-  async importLegacyCredential(input: VisitsLegacyFirstCredential) {
-    if (this.broken) throw this.broken;
-    this.imports.push(input);
-    if (this.unreadable.has(input.ciphertext)) return "unreadable" as const;
-    if (this.credentials.has(input.program)) return "kept-existing" as const;
-    this.configure(input.program, input.username, input.checkedAt);
-    return "imported" as const;
-  }
 }
 
 export type Call = { readonly status: number; readonly body: any };
@@ -232,13 +219,12 @@ export function visitsHarness(start = Date.parse("2026-10-28T15:00:00.000Z")) {
   // Outreach is not installed until a test says so.
   const outreach = new FakeOutreach();
   outreach.ready = false;
-  // Core's FIRST connection, with no credential until a test saves one, and this harness's own isolate state.
+  // Core's FIRST connection, with no credential until a test saves one.
   const first = new FakeFirstConnection();
-  const firstImport: VisitsFirstImport = { settled: false };
   /** Guest requests and the job have no signed-in user; workspace and setup requests have the caller's role. */
   const depsFor = (grantOnly: boolean, role: VisitsRole | null): VisitsDeps => ({
     civil, timeZone: async () => newYork, now: () => clock.now, email, discord, outreach: outreach.access(grantOnly, role), dashboardOrigin,
-    first, firstImport,
+    first,
   });
   const deps = depsFor(true, null);
 
@@ -275,7 +261,7 @@ export function visitsHarness(start = Date.parse("2026-10-28T15:00:00.000Z")) {
   const count = (sql: string, ...values: unknown[]) => Number((db.rows<{ n: number }>(sql, ...values)[0] as { n: number }).n);
   /** One pass of the visits.notifications job. */
   const job = () => processVisitsNotifications(db as never, depsFor(true, null));
-  return { db, clock, email, discord, outreach, first, firstImport, deps, depsFor, call, count, job };
+  return { db, clock, email, discord, outreach, first, deps, depsFor, call, count, job };
 }
 
 /** Monday and Wednesday 18:00 to 21:00 from November 2 to December 18, 2026 (America/New_York). */

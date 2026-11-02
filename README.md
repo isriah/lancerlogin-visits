@@ -60,8 +60,8 @@ When a guest enters a team number, Guest Visits looks it up in FIRST's FRC, FTC,
 - **Credentials:** an Admin saves the FRC and FTC Events API usernames and tokens in **Settings > Integrations > FIRST**, which every module that looks up FIRST teams shares. Guest Visits never sees a token. FLL Challenge and FLL Explore teams come from FIRST's public team search, which needs no credential. **Settings > Guest Visits > Team lookup** shows which programs lookup works for and links there.
 - **What FIRST receives:** the team number only (and, for FLL, the program), sent by Core. Never guest names, contact details or anything else from a booking. Guest Visits asks for FRC, FTC, FLL Challenge and FLL Explore, never for Other.
 - **Caching and limits:** Core caches FIRST's answers and applies its request limits, including a per-visitor limit on the guest page. When a program cannot answer (no credential, a limit, a timeout or a FIRST failure), the search says it is incomplete and the guest can enter the team by hand.
-- **Moving from Guest Visits 0.2.x:** credentials saved in Guest Visits before 0.3.0 move to **Settings > Integrations > FIRST** on their own. Each Worker isolate offers them to Core once, on its first team search, Team lookup settings read or notification job pass (`importLegacyCredential`). Core takes a credential for a program it has none for, and keeps an Admin's own credential otherwise; either way Guest Visits then deletes its copy. A credential Core cannot read with its integration key stays until Core has a working credential of its own for that program, and Team lookup settings ask the Admin to save it again there. Migration 0004 drops Guest Visits' own FIRST caches; `visits_first_credentials` stays until a later release, so the credentials outlive the migration that runs before the new code.
-- **Data:** credentials waiting to move are never in backups and are deleted with the rest of Guest Visits data. Core's FIRST credentials are part of Core's own backups.
+- **Moving from Guest Visits 0.2.x:** update to Guest Visits 0.3.0 first and let it run, then to a later release. 0.3.0 moves the FRC and FTC credentials saved in Guest Visits into **Settings > Integrations > FIRST** at run time; later releases drop the table they were kept in (migration 0005), and migrations run before a release's code. `package.json` lists 0.3.0's migration `0004_drop_first_caches.sql` in `lancerlogin.upgradeRequiresMigrations`, so Core refuses to upgrade an installation that has not applied it: Settings > Modules refuses to pin the release (`upgrade_path_required`, naming that migration), and reconciliation leaves a build deployed anyway on its older schema until 0.3.0 has run. A new installation installs the latest release directly. A credential 0.3.0 could not move, because Core could not read it with its integration key, is dropped too; save it again in Settings > Integrations > FIRST.
+- **Data:** Core's FIRST credentials are part of Core's own backups. Guest Visits keeps no FIRST data of its own.
 
 ## Privacy and data
 
@@ -77,6 +77,7 @@ When a guest enters a team number, Guest Visits looks it up in FIRST's FRC, FTC,
 
 | Plugin | LancerLogin Core | Module SDK | Module contract |
 | --- | --- | --- | --- |
+| Unreleased (after 0.3.0) | The first Core release with `lancerlogin.upgradeRequiresMigrations` (not published yet), with module SDK 1.2.0 | `^1.2.0` | 1 |
 | 0.3.x | `>=2.1.0-beta.3 <3.0.0`, with module SDK 1.2.0 (the first Core with `services.first`) | `^1.2.0` | 1 |
 | 0.1.x, 0.2.x | `>=2.0.0-beta.15 <3.0.0` (Modular 2.0.0-beta.15, the first Core with module SDK 1.1.0, and later 2.x releases) | `^1.1.0` | 1 |
 

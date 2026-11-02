@@ -175,7 +175,7 @@ function GuestPageSettings({ settings, status, save, onDirty }: SectionProps) {
 
 /**
  * Team lookup runs on Core's shared FIRST connection, so this section only points to its card in Settings > Integrations
- * and says whether lookup works, with a warning for a credential saved here before that could not be moved.
+ * and says whether lookup works.
  */
 function TeamLookupSettings({ navigate }: SectionProps) {
   const [lookup, setLookup] = useState<FirstLookupStatus>();
@@ -197,7 +197,6 @@ function TeamLookupSettings({ navigate }: SectionProps) {
         <a href="/settings/integrations" onClick={inPageLink(navigate, "/settings/integrations")}>Settings &gt; Integrations</a> under FIRST, which every module that looks up FIRST teams shares.</p>
       <LoadState loading={!lookup && !error} error={lookup ? "" : error} label="team lookup" onRetry={() => setVersion((value) => value + 1)} />
       {notices && <p className="ui-status settings-notice" data-tone={notices.lookup.tone} role="status">{notices.lookup.label}</p>}
-      {notices?.notMoved && <p className="ui-status settings-notice" data-tone={notices.notMoved.tone}>{notices.notMoved.label}</p>}
     </SettingsCard>
   </div>;
 }

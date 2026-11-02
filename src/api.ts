@@ -11,8 +11,7 @@ import {
 import { processVisitsNotifications } from "./api/visits-delivery.ts";
 import { visitReportLabel, visitReportRecords, visitReportValues } from "./api/visits-reports.ts";
 import { visitsAdminRoute, visitsPublicRoute, visitsSetupRoute } from "./api/visits-routes.ts";
-import { moveLegacyFirstCredentials } from "./api/visits-team-search.ts";
-import { installationId, type VisitsDeps, type VisitsFirstImport, type VisitsOutreachAccess, type VisitsOutreachClient, type VisitsRouteContext } from "./api/visits-runtime.ts";
+import { installationId, type VisitsDeps, type VisitsOutreachAccess, type VisitsOutreachClient, type VisitsRouteContext } from "./api/visits-runtime.ts";
 import { visitsSetupPredicates, visitsSetupStepValid } from "./api/visits-settings.ts";
 import { outreachInterfaceId, outreachInterfaceVersion } from "./shared/visits-outreach.ts";
 import { visitReportDatasetId } from "./shared/visits-report-fields.ts";
@@ -41,16 +40,13 @@ function outreach(services: CoreModuleServices, grantOnly: boolean): VisitsOutre
   };
 }
 
-/** Whether this isolate has offered Guest Visits' saved FIRST credentials to Core yet; see moveLegacyFirstCredentials. */
-const firstImport: VisitsFirstImport = { settled: false };
-
 function deps(db: D1Database, services: CoreModuleServices, dashboardOrigin: string | undefined, grantOnly: boolean): VisitsDeps {
   let timeZone: Promise<string> | undefined;
   return {
     civil, now: () => Date.now(), email: services.email, discord: services.discord, outreach: outreach(services, grantOnly), dashboardOrigin,
     timeZone: () => timeZone ??= installationTimeZone(db, installationId),
     // Core's shared FIRST connection: it holds the credentials and asks FIRST. Guest Visits never reaches the network.
-    first: services.first, firstImport,
+    first: services.first,
   };
 }
 
@@ -75,15 +71,7 @@ const api = defineApiModule({
   setup: { predicates: visitsSetupPredicates, stepValid: visitsSetupStepValid },
   // Manage links in queued emails point at the dashboard origin recorded when the email was queued.
   // Jobs run without a signed-in user, so Outreach is reachable only through an Admin's grant.
-  // Each pass first offers any FIRST credential saved before team lookup moved to Core (once per isolate), so an
-  // installation nobody visits still moves them.
-  jobs: {
-    "visits.notifications": async ({ db, services }) => {
-      const jobDeps = deps(db, services, undefined, true);
-      await moveLegacyFirstCredentials(db, jobDeps);
-      return processVisitsNotifications(db, jobDeps);
-    },
-  },
+  jobs: { "visits.notifications": ({ db, services }) => processVisitsNotifications(db, deps(db, services, undefined, true)) },
   reports: { [visitReportDatasetId]: projectVisitBookings },
   cleanup: { steps: visitsCleanupSteps, blocker: { sql: visitsCleanupBlockerSql, bindings: (installation) => [installation] } },
   // Discord off and the weekly summary on Monday 12:00, created once; settings kept through an earlier deletion stay.

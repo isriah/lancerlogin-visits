@@ -206,11 +206,10 @@ const credentialNeeded = (programs: readonly FirstCredentialProgram[]) => progra
   : `${joinPrograms(programs)} credentials are saved in Settings > Integrations > FIRST`;
 
 /**
- * Settings > Guest Visits > Team lookup: which programs Core's FIRST connection looks up now, and a warning for each
- * credential saved in Guest Visits that Core could not read, so it was not moved. FRC and FTC need an Events API
- * credential in Core; FLL Challenge and FLL Explore use FIRST's public team search and need none.
+ * Settings > Guest Visits > Team lookup: which programs Core's FIRST connection looks up now. FRC and FTC need an Events
+ * API credential in Core; FLL Challenge and FLL Explore use FIRST's public team search and need none.
  */
-export function firstLookupNotices(status: FirstLookupStatus): { readonly lookup: Badge; readonly notMoved: Badge | null } {
+export function firstLookupNotices(status: FirstLookupStatus): { readonly lookup: Badge } {
   const on = firstApiPrograms.filter((program) => status.programs[program]?.available === true);
   const offCredential = firstCredentialPrograms.filter((program) => status.programs[program]?.available !== true);
   const offSearch = firstApiPrograms.filter((program) => program === "Challenge" || program === "Explore").filter((program) => status.programs[program]?.available !== true);
@@ -224,10 +223,5 @@ export function firstLookupNotices(status: FirstLookupStatus): { readonly lookup
     : on.length === firstApiPrograms.length
       ? { tone: "success", label: `On. Guests' ${joinPrograms(firstApiPrograms.map(label))} team numbers are looked up.` }
       : { tone: "neutral", label: `On for ${joinPrograms(on.map(label))}. ${unavailable}` };
-  const notMoved: Badge | null = status.notMoved.length
-    ? status.notMoved.length === 1
-      ? { tone: "warning", label: `The ${status.notMoved[0]} credential saved in Guest Visits could not be moved to Settings > Integrations > FIRST, because LancerLogin cannot read it. Save the ${status.notMoved[0]} username and token again there.` }
-      : { tone: "warning", label: `The ${joinPrograms(status.notMoved)} credentials saved in Guest Visits could not be moved to Settings > Integrations > FIRST, because LancerLogin cannot read them. Save each username and token again there.` }
-    : null;
-  return { lookup, notMoved };
+  return { lookup };
 }

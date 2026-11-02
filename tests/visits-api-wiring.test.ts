@@ -49,21 +49,18 @@ test("the contribution binds exactly the declared routes, setup steps, job, repo
   assert.deepEqual(Object.keys(api.backup!.tables), [...manifest.backup.tables]);
 });
 
-// Runs before any other test reaches a route or the job: the isolate offers saved FIRST credentials to Core only once.
-test("the job moves FIRST credentials saved in Guest Visits to services.first, and team search asks it for every FIRST program", async () => {
+test("team search asks services.first for every FIRST program, and the job never calls it", async () => {
   const db = database();
   await db.batch(api.freshEnable!(db as never, { installationId: "primary", now: "2026-10-28T15:00:00.000Z" }) as never);
-  db.exec(`INSERT INTO visits_first_credentials VALUES('primary','FRC','synthetic-frc-user','synthetic-ciphertext-frc','synthetic-iv-frc','2026-09-15T18:30:00.000Z')`);
   const first = new FakeFirstConnection();
+  first.configure("FRC");
   first.team("FRC", "9001", "Test Team Alpha", "Testville, PA");
   const services = context(db, "GET", "/", undefined, undefined, first).services;
   await api.jobs!["visits.notifications"]!({ db: db as never, env: {}, services: services as never });
-  assert.deepEqual(first.imports.map((item) => [item.program, item.username, item.ciphertext]), [["FRC", "synthetic-frc-user", "synthetic-ciphertext-frc"]]);
-  assert.deepEqual(db.rows("SELECT program FROM visits_first_credentials"), [], "Core took it, so Guest Visits' copy is gone");
+  assert.deepEqual(first.searches, [], "the job sends nothing to FIRST");
   const response = await api.routes!["/public/visits"]!(context(db, "GET", "/public/visits/team-search?number=9001", undefined, undefined, first) as never);
   assert.deepEqual(await response!.json(), { matches: [{ number: "9001", name: "Test Team Alpha", program: "FRC", location: "Testville, PA", source: "first" }], complete: false });
   assert.deepEqual(first.searches, [{ number: "9001", programs: ["FRC", "FTC", "Challenge", "Explore"] }]);
-  assert.equal(first.imports.length, 1, "offered once per isolate");
 });
 
 test("routes, the job and the report run through Core's context with the installation time zone", async () => {

@@ -41,7 +41,6 @@ const manifest = {
     tables: [
       "visits_settings", "visits_availability_series", "visits_windows", "visits_teams", "visits_bookings", "visits_booking_revisions",
       "visits_manage_tokens", "visits_public_submission_keys", "visits_email_limits", "visits_notifications",
-      "visits_first_credentials",
     ],
     sharedFields: [],
     transientAuthority: [
@@ -54,19 +53,15 @@ const manifest = {
     version: 2,
     tables: ["visits_settings", "visits_availability_series", "visits_windows", "visits_teams", "visits_bookings", "visits_booking_revisions", "visits_notifications"],
     // A restore drops every manage link, guest submission key and daily email count. Staff resend confirmations afterwards.
-    // FIRST credentials saved before team lookup moved to Core are never in a backup either; they wait only to be moved.
-    nonPortableTables: [
-      "visits_manage_tokens", "visits_public_submission_keys", "visits_email_limits",
-      "visits_first_credentials",
-    ],
+    nonPortableTables: ["visits_manage_tokens", "visits_public_submission_keys", "visits_email_limits"],
   },
   lifecycle: {
     cleanupTargets: [
       "visits_notifications", "visits_manage_tokens", "visits_public_submission_keys", "visits_email_limits", "visits_booking_revisions",
       "visits_bookings", "visits_teams", "visits_windows", "visits_availability_series", "visits_settings",
       "platform_module_setup_progress:visits", "platform_module_assignments:visits",
-      // The last three are retired cleanup steps: migration 0004 dropped their tables (see src/shared/visits-storage.ts).
-      "visits_first_credentials", "retired:visits_first_seasons", "retired:visits_first_teams", "retired:visits_first_requests",
+      // The last four are retired cleanup steps: migrations 0005 and 0004 dropped their tables (see src/shared/visits-storage.ts).
+      "retired:visits_first_credentials", "retired:visits_first_seasons", "retired:visits_first_teams", "retired:visits_first_requests",
     ],
   },
   deletedData: [
@@ -74,7 +69,6 @@ const manifest = {
     "Guest teams, visits, contact details, team needs and change history",
     "Guest Visits settings, queued emails, Discord messages and Outreach work, manage links and email counts",
     "Guest Visits setup and assignment records",
-    "FIRST API usernames and tokens saved in Guest Visits before team lookup moved to Settings > Integrations",
   ],
 } as const;
 

@@ -10,7 +10,6 @@ export const firstApiPrograms = ["FRC", "FTC", "Challenge", "Explore"] as const 
 export const isFirstApiProgram = (value: unknown): value is FirstApiProgram => firstApiPrograms.includes(value as FirstApiProgram);
 /** The programs whose lookup needs an Events API credential in Core. FLL lookup needs none. */
 export const firstCredentialPrograms = ["FRC", "FTC"] as const satisfies readonly FirstCredentialProgram[];
-export const isFirstCredentialProgram = (value: unknown): value is FirstCredentialProgram => firstCredentialPrograms.includes(value as FirstCredentialProgram);
 
 /** One program's answer from `services.first.searchTeams`, the parts Guest Visits reads. Structurally the SDK's `FirstSearchResult`. */
 export type FirstSearchAnswer =

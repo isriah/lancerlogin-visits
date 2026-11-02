@@ -14,5 +14,9 @@
   {
     "name": "0004_drop_first_caches.sql",
     "sha256": "613de61a3374924f83915608e540fdbff4835d0fe0dc8bcb960191f0aab9d3f8"
+  },
+  {
+    "name": "0005_drop_first_credentials.sql",
+    "sha256": "e81db60f784c83d2a37ba358789e02d541b66f85387705f5134748ba7b59546d"
   }
 ]

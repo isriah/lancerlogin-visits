@@ -62,12 +62,18 @@ test("cleanup steps cover every table and the module's setup progress and assign
   const retired = (step: (typeof visitsCleanupSteps)[number]) => step.kind === "delete" && step.table === "visits_settings" && step.where === "0";
   const targets = visitsCleanupSteps.map((step) => step.kind === "assignments" ? `platform_module_assignments:${manifest.id}` : step.table === "platform_module_setup_progress" ? `${step.table}:${manifest.id}` : retired(step) ? "retired" : step.table);
   assert.deepEqual(targets, visitsCleanupTargets.map((target) => target.startsWith("retired:") ? "retired" : target));
-  // Positions never move: 0.2.x had 16 steps, and the three for the tables migration 0004 dropped are retired in place.
+  // Positions never move: 0.2.x had 16 steps, and the four for the tables migrations 0004 and 0005 dropped are retired in place.
   assert.equal(visitsCleanupSteps.length, 16);
-  assert.deepEqual(visitsCleanupTargets.slice(-4), ["visits_first_credentials", "retired:visits_first_seasons", "retired:visits_first_teams", "retired:visits_first_requests"]);
+  assert.deepEqual(visitsCleanupTargets.slice(-4), ["retired:visits_first_credentials", "retired:visits_first_seasons", "retired:visits_first_teams", "retired:visits_first_requests"]);
   assert.deepEqual(visitsCleanupTargets.filter((target) => target.startsWith("retired:")).map((target) => target.slice("retired:".length)).sort(), Object.keys(visitsDroppedTables).sort());
   const setupStep = visitsCleanupSteps.find((step) => step.kind === "delete" && step.table === "platform_module_setup_progress");
   assert.deepEqual(setupStep, { kind: "delete", table: "platform_module_setup_progress", where: "module_id=?", bindings: ["visits"] });
+});
+
+test("an upgrade must pass through 0.3.0, whose migration 0004 runs before the code that moves FIRST credentials into Core", () => {
+  const pkg = JSON.parse(read("package.json")) as { lancerlogin: { upgradeRequiresMigrations?: string[] } };
+  assert.deepEqual(pkg.lancerlogin.upgradeRequiresMigrations, ["0004_drop_first_caches.sql"]);
+  assert.ok(Object.values(visitsDroppedTables).includes("0005_drop_first_credentials.sql"), "the release that requires it drops the credentials table");
 });
 
 test("migrations are numbered from 0001 and match their reviewed hashes", () => {

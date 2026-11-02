@@ -425,11 +425,30 @@ test("migration 0004 drops FIRST's cached answers, seasons and request counts an
   applyMigration(db, migrationFiles().find((file) => file.name === "0004_drop_first_caches.sql")!);
   const objects = db.rows<{ name: string }>("SELECT name FROM sqlite_master WHERE name LIKE 'visits_first%' ORDER BY name").map((row) => row.name);
   assert.deepEqual(objects, ["visits_first_credentials"], "the cache tables and their indexes are gone");
-  assert.deepEqual(visitsTables.map((table) => db.rows(`SELECT * FROM ${table}`)), kept, "every other row stays, the saved credential too");
+  assert.deepEqual(visitsTables.map((table) => db.rows(`SELECT * FROM ${table}`)), kept, "every other row stays");
+  assert.deepEqual(db.rows("SELECT program FROM visits_first_credentials"), [{ program: "FRC" }], "the saved credential stays for 0.3.0's move to Core");
   assert.deepEqual(db.rows("PRAGMA foreign_key_check"), []);
   // The retired cleanup steps still run, and delete nothing.
   db.exec("CREATE TABLE platform_module_setup_progress (installation_id TEXT NOT NULL, module_id TEXT NOT NULL, step_id TEXT NOT NULL)");
   for (const step of visitsCleanupSteps.slice(-3)) {
+    assert.ok(step.kind === "delete" && step.where === "0");
+    assert.equal((await db.prepare(`DELETE FROM ${step.table} WHERE installation_id=? AND (${step.where})`).bind("primary").run()).meta.changes, 0);
+  }
+  assert.equal(db.rows("SELECT 1 FROM visits_settings").length, 1);
+});
+
+test("migration 0005 drops the FIRST credentials table and keeps every other row", async () => {
+  const db = createTestDatabase({ through: "0004_drop_first_caches.sql" });
+  await populate(db);
+  // A credential Guest Visits 0.3.0 could not move (Core could not read it); an Admin saves it again in Core.
+  db.exec("INSERT INTO visits_first_credentials VALUES('primary','FRC','synthetic-frc-user','synthetic-ciphertext-frc','synthetic-iv-frc','2026-09-15T18:30:00.000Z')");
+  const kept = visitsTables.map((table) => db.rows(`SELECT * FROM ${table}`));
+  applyMigration(db, migrationFiles().find((file) => file.name === "0005_drop_first_credentials.sql")!);
+  assert.deepEqual(db.rows("SELECT name FROM sqlite_master WHERE name LIKE 'visits_first%'"), [], "no FIRST table is left");
+  assert.deepEqual(visitsTables.map((table) => db.rows(`SELECT * FROM ${table}`)), kept);
+  assert.deepEqual(db.rows("PRAGMA foreign_key_check"), []);
+  // All four retired cleanup steps still run, and delete nothing.
+  for (const step of visitsCleanupSteps.slice(-4)) {
     assert.ok(step.kind === "delete" && step.where === "0");
     assert.equal((await db.prepare(`DELETE FROM ${step.table} WHERE installation_id=? AND (${step.where})`).bind("primary").run()).meta.changes, 0);
   }
