@@ -124,16 +124,11 @@ export type PublicTeamSearch = {
  * FIRST's Events APIs, FLL Challenge and FLL Explore from FIRST's public team search.
  */
 export type FirstApiProgram = "FRC" | "FTC" | "Challenge" | "Explore";
-/** The programs that need an Events API credential, the only ones Guest Visits ever saved one for. */
+/** The programs that need an Events API credential, saved in Settings > Integrations > FIRST. */
 export type FirstCredentialProgram = "FRC" | "FTC";
 export type FirstLookupStatus = {
   /** Per program: whether Core can look teams up now, and when FIRST last accepted its credential (null for FLL, which needs none). */
   readonly programs: { readonly [Program in FirstApiProgram]: { readonly available: boolean; readonly checkedAt: string | null } };
-  /**
-   * Programs whose credential, saved in Guest Visits before team lookup moved to Core, could not be moved because Core
-   * cannot read it, while Core has no working credential of its own for them. An Admin saves that program again in Core.
-   */
-  readonly notMoved: readonly FirstCredentialProgram[];
 };
 export type PublicBookingRequest = {
   readonly teamNumber: string;

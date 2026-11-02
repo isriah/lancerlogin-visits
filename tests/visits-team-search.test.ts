@@ -1,10 +1,9 @@
 // Team lookup by number through Core's shared FIRST connection: reading Core's answers, merging with saved guest teams,
-// falling back when a program cannot answer, moving FIRST credentials saved in Guest Visits to Core, and the Team lookup
-// settings status, through the Worker routes with a synthetic stand-in for `services.first`. Synthetic data only; no
+// falling back when a program cannot answer, and the Team lookup settings status, through the Worker routes with a synthetic stand-in for `services.first`. Synthetic data only; no
 // request leaves the process.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { FakeFirstConnection, visitsHarness, type Harness } from "./helpers/visits-harness.ts";
+import { visitsHarness, type Harness } from "./helpers/visits-harness.ts";
 import type { TeamMatch } from "../src/shared/visits-api.ts";
 import { firstMatchesOf, mergeTeamMatches } from "../src/shared/visits-team-search.ts";
 
@@ -16,12 +15,6 @@ function saveTeam(harness: Harness, id: string, program: string, number: string,
   harness.db.sqlite.prepare("INSERT INTO visits_teams(installation_id,id,number,name,program,archived,created_at,updated_at) VALUES('primary',?,?,?,?,?,'x','x')").run(id, number, name, program, archived);
 }
 
-/** A FIRST credential saved in Guest Visits before team lookup moved to Core: synthetic ciphertext, never a token. */
-function saveLegacyCredential(harness: Harness, program: "FRC" | "FTC", username = `synthetic-${program.toLowerCase()}-user`) {
-  harness.db.sqlite.prepare("INSERT INTO visits_first_credentials(installation_id,program,username,ciphertext,iv,checked_at) VALUES('primary',?,?,?,?,?)")
-    .run(program, username, `synthetic-ciphertext-${program.toLowerCase()}`, `synthetic-iv-${program.toLowerCase()}`, "2026-09-15T18:30:00.000Z");
-}
-const legacyPrograms = (harness: Harness) => harness.db.rows<{ program: string }>("SELECT program FROM visits_first_credentials ORDER BY program").map((row) => row.program);
 
 test("Core's answers become FRC, FTC, FLL Challenge and FLL Explore matches; other programs and nameless teams are ignored", () => {
   const team = (name: unknown, location: unknown = "Testville, PA") => ({ program: "FRC", number: "9001", name, location, season: 2026, source: "events-api" });
@@ -109,62 +102,14 @@ test("a program Core cannot answer leaves the search incomplete, and a Core fail
   assert.deepEqual((await search(harness, "9001")).body, { matches: [match("FTC", "9001", "Saved Test Team", "", "saved")], complete: false });
 });
 
-test("credentials saved in Guest Visits move to Core on the first search, once per isolate, and Core's own credential wins", async () => {
-  const harness = visitsHarness();
-  harness.first.configure("FTC", "synthetic-core-admin", "2026-10-20T09:00:00.000Z");
-  harness.first.team("FRC", "9001", "Test Team Alpha");
-  saveLegacyCredential(harness, "FRC");
-  saveLegacyCredential(harness, "FTC");
-  // Two guests searching at once share one offer.
-  const [first, second] = await Promise.all([search(harness, "9001"), search(harness, "9002")]);
-  assert.deepEqual(first.body, { matches: [match("FRC", "9001", "Test Team Alpha")], complete: true }, "the moved FRC credential answers the very first search");
-  assert.deepEqual(second.body, { matches: [], complete: true });
-  assert.deepEqual(harness.first.imports, [
-    { program: "FRC", username: "synthetic-frc-user", ciphertext: "synthetic-ciphertext-frc", iv: "synthetic-iv-frc", checkedAt: "2026-09-15T18:30:00.000Z" },
-    { program: "FTC", username: "synthetic-ftc-user", ciphertext: "synthetic-ciphertext-ftc", iv: "synthetic-iv-ftc", checkedAt: "2026-09-15T18:30:00.000Z" },
-  ]);
-  assert.deepEqual(harness.first.credentials.get("FRC"), { username: "synthetic-frc-user", checkedAt: "2026-09-15T18:30:00.000Z" }, "imported");
-  assert.deepEqual(harness.first.credentials.get("FTC"), { username: "synthetic-core-admin", checkedAt: "2026-10-20T09:00:00.000Z" }, "kept-existing: the Admin's Core credential stays");
-  assert.deepEqual(legacyPrograms(harness), [], "both copies are deleted once Core has the program");
-  await search(harness, "9001");
-  assert.equal(harness.first.imports.length, 2, "the isolate offers them only once");
-});
-
-test("a credential Core cannot read stays, is reported in Team lookup settings, and goes once Core has its own", async () => {
-  const harness = visitsHarness();
-  saveLegacyCredential(harness, "FRC");
-  saveLegacyCredential(harness, "FTC");
-  harness.first.unreadable.add("synthetic-ciphertext-frc");
-  const status = await lookupStatus(harness);
-  assert.equal(status.status, 200);
-  assert.deepEqual(status.body, { programs: { FRC: { available: false, checkedAt: null }, FTC: { available: true, checkedAt: "2026-09-15T18:30:00.000Z" }, Challenge: { available: true, checkedAt: null }, Explore: { available: true, checkedAt: null } }, notMoved: ["FRC"] });
-  assert.deepEqual(legacyPrograms(harness), ["FRC"]);
-  // A new isolate tries again, for example after the integration key is fixed.
-  harness.firstImport.settled = false;
-  await search(harness, "9001");
-  assert.equal(harness.first.imports.filter((item) => item.program === "FRC").length, 2);
-  assert.deepEqual(legacyPrograms(harness), ["FRC"]);
-  // Once an Admin saves FRC in Settings > Integrations, the unreadable copy is never needed again.
-  harness.first.configure("FRC");
-  assert.deepEqual((await lookupStatus(harness)).body.notMoved, []);
-  assert.deepEqual(legacyPrograms(harness), []);
-});
-
-test("a failed offer keeps the credentials and lookups carry on with what Core has", async () => {
-  const harness = visitsHarness();
-  saveLegacyCredential(harness, "FRC");
-  const first = harness.first as FakeFirstConnection;
-  first.importLegacyCredential = async () => { throw new Error("Only Guest Visits can import a FIRST credential"); };
-  assert.deepEqual((await search(harness, "9001")).body, { matches: [], complete: false });
-  assert.deepEqual(legacyPrograms(harness), ["FRC"]);
-  first.broken = new Error("Core is unavailable");
-  assert.deepEqual((await lookupStatus(harness)).body, { programs: { FRC: { available: false, checkedAt: null }, FTC: { available: false, checkedAt: null }, Challenge: { available: false, checkedAt: null }, Explore: { available: false, checkedAt: null } }, notMoved: ["FRC"] });
-});
-
 test("the Team lookup settings status is Admin only, and credentials are no longer saved or removed in Guest Visits", async () => {
   const harness = visitsHarness();
   harness.first.configure("FRC");
-  assert.deepEqual((await lookupStatus(harness)).body, { programs: { FRC: { available: true, checkedAt: "2026-10-01T12:00:00.000Z" }, FTC: { available: false, checkedAt: null }, Challenge: { available: true, checkedAt: null }, Explore: { available: true, checkedAt: null } }, notMoved: [] });
+  assert.deepEqual((await lookupStatus(harness)).body, { programs: { FRC: { available: true, checkedAt: "2026-10-01T12:00:00.000Z" }, FTC: { available: false, checkedAt: null }, Challenge: { available: true, checkedAt: null }, Explore: { available: true, checkedAt: null } } });
+  harness.first.broken = new Error("Core is unavailable");
+  const off = { available: false, checkedAt: null };
+  assert.deepEqual((await lookupStatus(harness)).body, { programs: { FRC: off, FTC: off, Challenge: off, Explore: off } }, "a Core that cannot answer reads as off");
+  harness.first.broken = null;
   assert.equal((await harness.call("GET", "/admin/visits/settings/first-api", { role: "operator" })).status, 403);
   assert.equal((await harness.call("PUT", "/admin/visits/settings/first-api", { body: { program: "FRC", username: "synthetic-admin", token: "synthetic-token" } })).status, 405);
   assert.equal((await harness.call("DELETE", "/admin/visits/settings/first-api?program=FRC")).status, 405);

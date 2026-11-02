@@ -103,7 +103,7 @@ function adminRoute(db: VisitsRouteContext["db"], deps: VisitsDeps, path: string
     if (third !== undefined) return undefined;
     if (second === "test-email") return { roles: admin, methods: { POST: ({ body }) => sendTestEmail(db, deps, body) } };
     // FIRST credentials live in Core's Settings > Integrations > FIRST; Guest Visits only reports whether lookup works.
-    return second === "first-api" ? { roles: admin, methods: { GET: async () => ok(await firstLookupStatus(db, deps)) } } : undefined;
+    return second === "first-api" ? { roles: admin, methods: { GET: async () => ok(await firstLookupStatus(deps)) } } : undefined;
   }
   const id = pathId(second);
   switch (`${first}/${third ?? ""}`) {
