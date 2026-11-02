@@ -111,9 +111,8 @@ function GuestBookingPage() {
 
   // Fields are checked as the guest leaves them, then as they type once a problem shows (see useLiveChecks). With several
   // teams to pick from, a missing program means the guest has not picked theirs.
-  const headcountRequired = calendar?.headcountRequired ?? false;
   const checkField = (field: string, next: BookingDraft) => {
-    const problem = checkBookingField(field, next, chosen?.local.date, headcountRequired);
+    const problem = checkBookingField(field, next, chosen?.local.date);
     return field === "program" && problem && entry === "pick" ? "Choose your team" : problem;
   };
   const { errors, blur, setErrors, clear: clearErrors } = useLiveChecks(draft, checkField, bookingFieldSources);
@@ -170,7 +169,7 @@ function GuestBookingPage() {
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (busy) return;
-    const checked = validateBookingDraft(draft, chosen?.local.date, headcountRequired);
+    const checked = validateBookingDraft(draft, chosen?.local.date);
     const found: FieldErrors = entry === "pick" && checked.program ? { ...checked, program: "Choose your team" } : checked;
     if (Object.keys(found).length) {
       setErrors(found); setFormError("");
@@ -232,7 +231,7 @@ function GuestBookingPage() {
   return <main id="dashboard-content" className="visits-public-page">
     <header className="visits-public-intro">
       <p className="kicker">Guest Visits</p>
-      <h1>{calendar?.hostName ? `Book a visit with ${calendar.hostName}` : "Book a team visit"}</h1>
+      <h1>Book a team visit</h1>
       {calendar?.introText && <p className="visits-intro-text">{calendar.introText}</p>}
     </header>
     {loading && !calendar && <p className="ui-status settings-notice" role="status">Loading open times...</p>}
@@ -280,8 +279,8 @@ function GuestBookingPage() {
               {departures.map((time) => <option key={time} value={time}>{formatTime(time)}</option>)}
             </select>
           </Field>
-          <Field id={ids("headcount")} label="Headcount" optional={!headcountRequired} error={errors.headcount} className="visits-span-2">
-            <input {...fieldAria(ids("headcount"), errors.headcount)} onBlur={blur("headcount")} className="ui-control" type="number" inputMode="numeric" required={headcountRequired} min={1} max={100} step={1} value={draft.headcount} onChange={(event) => change("headcount", event.target.value)} />
+          <Field id={ids("headcount")} label="Headcount (approximate)" error={errors.headcount} className="visits-span-2">
+            <input {...fieldAria(ids("headcount"), errors.headcount)} onBlur={blur("headcount")} className="ui-control" type="number" inputMode="numeric" required min={1} max={100} step={1} value={draft.headcount} onChange={(event) => change("headcount", event.target.value)} />
           </Field>
           <Field id={ids("teamNumber")} label="Team number" error={errors.teamNumber} className="visits-span-2">
             <input {...fieldAria(ids("teamNumber"), errors.teamNumber)} onBlur={blur("teamNumber")} className="ui-control" required autoComplete="off" spellCheck={false} inputMode={entry === "manual" && draft.program === "Other" ? "text" : "numeric"} maxLength={12} value={draft.teamNumber} onChange={(event) => { setManual(false); change("teamNumber", event.target.value); }} />

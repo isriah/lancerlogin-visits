@@ -406,7 +406,9 @@ test("a visit's Outreach state, and a restore forgetting the grant", () => {
 
 test("a visit without a headcount is recorded in Outreach the same way: Guest Visits never sends a headcount", async () => {
   const harness = await withOutreach({ granted: true });
-  const booked = await book(harness, { headcount: undefined });
+  const booked = await book(harness);
+  // A visit booked before headcounts were required has none.
+  harness.db.sqlite.prepare("UPDATE visits_bookings SET headcount=NULL,revision=revision+1 WHERE id=?").run(booked.id);
   assert.equal(harness.db.rows<{ headcount: number | null }>("SELECT headcount FROM visits_bookings")[0]!.headcount, null);
   await harness.job();
   assert.deepEqual(operations(harness), ["find-teams", "ensure-team", "ensure-team-support-activity"]);

@@ -54,7 +54,7 @@ const requiredText = (value: string, label: string, maximum: number): Check => {
 
 const arrivalTime = (arrival: string): Check => isLocalTime(arrival) ? passed : failed("Choose the arrival time");
 
-/** A headcount as typed: empty is fine unless an Admin requires one; anything typed must be 1 to 100 people. */
+/** A headcount as typed: empty is fine only where it is optional; anything typed must be 1 to 100 people. */
 const headcountCheck = (value: string, required = false): Check => value.trim() ? parseHeadcount(value) : required ? failed(headcountRequiredProblem.error) : passed;
 
 /** A typed headcount for a request: the number, or null when the field is empty. */
@@ -90,10 +90,9 @@ export const emptyBookingDraft: BookingDraft = {
 export const bookingFieldOrder = ["date", "arrival", "departure", "program", "teamNumber", "teamName", "contactName", "contactEmail", "contactPhone", "headcount", "note"] as const;
 
 /**
- * The booking rules: the Worker's own, with a short message for a program left unchosen. The headcount is optional unless
- * the guest page says an Admin requires it.
+ * The booking rules: the Worker's own, with a short message for a program left unchosen. The headcount is required.
  */
-const bookingRules: Rules<[BookingDraft, string | undefined, boolean?]> = {
+const bookingRules: Rules<[BookingDraft, string | undefined]> = {
   program: (draft) => draft.program ? parseProgram(draft.program) : failed("Choose the program"),
   // Until a program is chosen the number is only required: Other allows letters, the rest digits only.
   teamNumber: (draft) => {
@@ -107,24 +106,24 @@ const bookingRules: Rules<[BookingDraft, string | undefined, boolean?]> = {
   date: (_draft, windowDate) => windowDate ? passed : failed("Choose when to visit"),
   arrival: (draft) => arrivalTime(draft.arrival),
   departure: (draft) => timesInOrder(draft.arrival, draft.departure),
-  headcount: (draft, _windowDate, headcountRequired) => headcountCheck(draft.headcount, headcountRequired),
+  headcount: (draft) => headcountCheck(draft.headcount, true),
   note: (draft) => parseNote(draft.note),
 };
 
 /** Every problem in the booking form, by request field, using the Worker's own rules. */
-export function validateBookingDraft(draft: BookingDraft, windowDate: string | undefined, headcountRequired = false): FieldErrors {
-  return validateWith(bookingRules, draft, windowDate, headcountRequired);
+export function validateBookingDraft(draft: BookingDraft, windowDate: string | undefined): FieldErrors {
+  return validateWith(bookingRules, draft, windowDate);
 }
 
 /** One booking field's problem by the same rules, or undefined: `checkBookingField("contactEmail", draft)`. */
-export function checkBookingField(field: string, draft: BookingDraft, windowDate?: string, headcountRequired = false): string | undefined {
-  return checkWith(bookingRules, field, draft, windowDate, headcountRequired);
+export function checkBookingField(field: string, draft: BookingDraft, windowDate?: string): string | undefined {
+  return checkWith(bookingRules, field, draft, windowDate);
 }
 
 /** The booking form's `date` problem belongs to its time slot choice, `windowId`. For `useLiveChecks`. */
 export const bookingFieldSources: FieldSources = { date: "windowId" };
 
-/** The booking request without its submission key. Optional fields are left out when empty. */
+/** The booking request without its submission key. Optional fields are left out when empty; so is a missing headcount, which the Worker refuses. */
 export function bookingRequest(draft: BookingDraft, windowDate: string): Omit<PublicBookingRequest, "submissionKey"> {
   const program = parseProgram(draft.program);
   const number = program.ok ? parseTeamNumber(draft.teamNumber, program.value) : null;
@@ -198,7 +197,10 @@ export function visitDraft(booking: Pick<ManageView["booking"], "date" | "arriva
 
 export const visitFieldOrder = ["date", "arrival", "departure", "headcount", "contactName", "contactPhone", "note"] as const;
 
-/** Visit changes. A guest cannot clear the headcount while an Admin requires one; staff always can. */
+/**
+ * Visit changes. `headcountRequired` is true on the manage page for a visit that has a headcount, which a guest cannot
+ * clear; a visit booked before headcounts were required may stay without one. Staff can always clear it.
+ */
 const visitRules: Rules<[VisitDraft, boolean?]> = {
   date: (draft) => /^\d{4}-\d{2}-\d{2}$/.test(draft.date) ? passed : failed("Choose the visit date"),
   arrival: (draft) => arrivalTime(draft.arrival),

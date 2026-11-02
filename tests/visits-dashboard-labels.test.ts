@@ -15,7 +15,7 @@ test("teams and programs read the way guests write them", () => {
   assert.equal(teamText({ number: "321", name: "RoboLancers", program: "FRC" }), "FRC 321 RoboLancers");
   assert.equal(teamText({ number: "12345", name: "Bricks", program: "Challenge" }), "FLL Challenge 12345 Bricks");
   assert.equal(teamText({ number: "99X", name: "Scouts", program: "Other" }), "Team 99X Scouts");
-  assert.deepEqual(programChoices.map((choice) => choice.label), ["FRC", "FTC", "FIRST LEGO League Challenge", "FIRST LEGO League Explore", "Other"]);
+  assert.deepEqual(programChoices.map((choice) => choice.label), ["FRC", "FTC", "FLL Challenge", "FLL Explore", "Other"]);
 });
 
 test("the guest's free-text field reads as Team needs, with examples where a guest types it", () => {
@@ -134,12 +134,17 @@ test("Record in Outreach results read per visit and sum up with the visits that 
 });
 
 test("Team lookup settings say which programs Core looks up and which saved credentials could not be moved", () => {
-  const programs = (frc: boolean, ftc: boolean) => ({ FRC: { available: frc, checkedAt: frc ? "2026-10-01T12:00:00.000Z" : null }, FTC: { available: ftc, checkedAt: null } });
-  assert.deepEqual(firstLookupNotices({ programs: programs(true, true), notMoved: [] }), { lookup: { tone: "success", label: "On. Guests' FRC and FTC team numbers are looked up." }, notMoved: null });
-  assert.equal(firstLookupNotices({ programs: programs(true, false), notMoved: [] }).lookup.label, "On for FRC. FTC teams are entered by hand until an FTC credential is saved in Settings > Integrations > FIRST.");
-  const off = firstLookupNotices({ programs: programs(false, false), notMoved: ["FRC", "FTC"] });
+  const programs = (frc: boolean, ftc: boolean, fll = true) => ({
+    FRC: { available: frc, checkedAt: frc ? "2026-10-01T12:00:00.000Z" : null }, FTC: { available: ftc, checkedAt: null },
+    Challenge: { available: fll, checkedAt: null }, Explore: { available: fll, checkedAt: null },
+  });
+  assert.deepEqual(firstLookupNotices({ programs: programs(true, true), notMoved: [] }), { lookup: { tone: "success", label: "On. Guests' FRC, FTC, FLL Challenge and FLL Explore team numbers are looked up." }, notMoved: null });
+  assert.equal(firstLookupNotices({ programs: programs(true, false), notMoved: [] }).lookup.label, "On for FRC, FLL Challenge and FLL Explore. FTC teams are entered by hand until an FTC credential is saved in Settings > Integrations > FIRST.");
+  assert.equal(firstLookupNotices({ programs: programs(false, false), notMoved: [] }).lookup.label, "On for FLL Challenge and FLL Explore. FRC and FTC teams are entered by hand until FRC and FTC credentials are saved in Settings > Integrations > FIRST.");
+  assert.equal(firstLookupNotices({ programs: programs(true, true, false), notMoved: [] }).lookup.label, "On for FRC and FTC. FLL Challenge and FLL Explore teams are entered by hand while FIRST's team search is not available.");
+  const off = firstLookupNotices({ programs: programs(false, false, false), notMoved: ["FRC", "FTC"] });
   assert.equal(off.lookup.tone, "neutral");
-  assert.match(off.lookup.label, /^Off\. /);
+  assert.equal(off.lookup.label, "Off. Guests enter their program and team name by hand. FRC and FTC teams are entered by hand until FRC and FTC credentials are saved in Settings > Integrations > FIRST. FLL Challenge and FLL Explore teams are entered by hand while FIRST's team search is not available.");
   assert.deepEqual(off.notMoved, { tone: "warning", label: "The FRC and FTC credentials saved in Guest Visits could not be moved to Settings > Integrations > FIRST, because LancerLogin cannot read them. Save each username and token again there." });
   assert.equal(firstLookupNotices({ programs: programs(false, true), notMoved: ["FRC"] }).notMoved?.label, "The FRC credential saved in Guest Visits could not be moved to Settings > Integrations > FIRST, because LancerLogin cannot read it. Save the FRC username and token again there.");
 });

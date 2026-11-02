@@ -97,7 +97,7 @@ async function guestWindows(db: D1Database, now: number) {
 export async function publicCalendar(db: D1Database, deps: VisitsDeps): Promise<PublicCalendar> {
   const now = deps.now();
   const [timeZone, settings, windows] = await Promise.all([deps.timeZone(), readSettings(db, now), guestWindows(db, now)]);
-  return { timeZone, hostName: settings.host_name, introText: settings.intro_text, headcountRequired: settings.headcount_required === 1, horizonDays: guestHorizonDays, windows };
+  return { timeZone, hostName: settings.host_name, introText: settings.intro_text, headcountRequired: true, horizonDays: guestHorizonDays, windows };
 }
 
 /** The saved team for a program and number, so the form can fill in its name. */
@@ -127,7 +127,7 @@ const keyReused = () => new VisitsError(409, "This form was already sent with ot
  * Book a visit from the guest page. The same submission key never books twice: a repeat returns the first result. The team
  * is found by program and number (a known team keeps its saved name) or created, and the booking, its history row, the
  * submission key and its notifications are written in one batch, which applies only while the window is still open.
- * The headcount is optional unless an Admin requires it.
+ * Every new booking needs an approximate headcount; visits booked before it was required may have none.
  */
 export async function bookVisit(db: D1Database, deps: VisitsDeps, value: unknown, origin: string | undefined): Promise<RouteResult> {
   const parsed = parseBookingInput(value);
@@ -138,7 +138,7 @@ export async function bookVisit(db: D1Database, deps: VisitsDeps, value: unknown
   if (outcome.kind === "replay") return ok(await bookingResult(db, deps, outcome.bookingId));
   if (outcome.kind === "conflict") throw keyReused();
   const now = deps.now();
-  if (input.headcount === null && (await readSettings(db, now)).headcount_required === 1) refuse(headcountRequiredProblem);
+  if (input.headcount === null) refuse(headcountRequiredProblem);
   const timeZone = await deps.timeZone();
   const times = resolveVisitTimes(deps.civil, timeZone, input.date, input.arrival, input.departure);
   if (!times.ok) refuse(times);
@@ -261,7 +261,7 @@ async function manageView(db: D1Database, deps: VisitsDeps, bookingId: string): 
   if (!row) throw new VisitsError(403, manageTokenRefusedMessage, "token");
   const [timeZone, settings, windows] = await Promise.all([deps.timeZone(), readSettings(db, now), guestWindows(db, now)]);
   return {
-    timeZone, hostName: settings.host_name, horizonDays: guestHorizonDays, headcountRequired: settings.headcount_required === 1,
+    timeZone, hostName: settings.host_name, horizonDays: guestHorizonDays, headcountRequired: true,
     booking: {
       ...localTimes(deps.civil, timeZone, row.arrival_ms, row.departure_ms),
       id: row.id, revision: row.revision, status: row.status, team: teamIdentity(row), windowTitle: row.window_title, headcount: row.headcount, note: row.note,
@@ -286,8 +286,9 @@ export async function manageUpdate(db: D1Database, deps: VisitsDeps, value: unkn
   const booking = await managedBooking(db, deps, input.token);
   const edit = parseGuestEdit(input.edit);
   if (!edit.ok) refuse(edit);
-  // While an Admin requires a headcount, a guest cannot clear it. Staff can, for a team that does not know yet.
-  if (edit.value.headcount === null && (await readSettings(db, deps.now())).headcount_required === 1) refuse(headcountRequiredProblem);
+  // A guest cannot clear the headcount. A visit booked before it was required keeps none until the guest gives one.
+  // Staff can clear it, for a team that does not know yet.
+  if (edit.value.headcount === null) refuse(headcountRequiredProblem);
   const timeZone = await deps.timeZone();
   let windows: BookableWindow[] = [];
   if (edit.value.times) {

@@ -39,8 +39,8 @@ test("a complete booking form has no problems and becomes a request the Worker a
 
 test("every booking problem is reported against its request field", () => {
   const errors = validateBookingDraft(emptyBookingDraft, undefined);
-  assert.deepEqual(Object.keys(errors).sort(), ["arrival", "contactEmail", "contactName", "date", "departure", "program", "teamName", "teamNumber"], "the headcount is optional");
-  assert.equal(validateBookingDraft(emptyBookingDraft, undefined, true).headcount, "Enter how many people are coming", "unless an Admin requires it");
+  assert.deepEqual(Object.keys(errors).sort(), ["arrival", "contactEmail", "contactName", "date", "departure", "headcount", "program", "teamName", "teamNumber"], "the headcount is required");
+  assert.equal(errors.headcount, "Enter how many people are coming");
   assert.equal(errors.contactEmail, "Enter an email address for the confirmation");
   assert.equal(errors.teamNumber, "Enter the team number");
   const wrong = validateBookingDraft({ ...filled, teamNumber: "32a", contactEmail: "coach", contactPhone: "12", departure: "17:00", headcount: "0" }, "2026-11-02");
@@ -78,7 +78,7 @@ test("live booking checks: phone symbols, team numbers by program and headcount 
   assert.equal(check("teamNumber", { teamNumber: "123456" }), undefined);
   assert.equal(check("teamNumber", { teamNumber: "1234567" }), "Team numbers are at most 6 digits");
   assert.equal(check("teamNumber", { teamNumber: "ROBO-7" }), "FRC team numbers are digits only");
-  assert.equal(check("teamNumber", { program: "Challenge", teamNumber: "12a" }), "FIRST LEGO League Challenge team numbers are digits only");
+  assert.equal(check("teamNumber", { program: "Challenge", teamNumber: "12a" }), "FLL Challenge team numbers are digits only");
   assert.equal(check("teamNumber", { program: "Other", teamNumber: "ROBO-7" }), undefined, "Other teams keep letters");
   assert.equal(check("teamNumber", { program: "Other", teamNumber: "ROBO 7" }), "Team numbers are up to 10 letters, digits and hyphens");
   assert.equal(check("teamNumber", { program: "", teamNumber: "ROBO-7" }), undefined, "only required until a program is chosen");
@@ -86,11 +86,7 @@ test("live booking checks: phone symbols, team numbers by program and headcount 
   for (const count of ["1", "100", " 12 "]) assert.equal(check("headcount", { headcount: count }), undefined, count);
   for (const count of ["0", "101"]) assert.equal(check("headcount", { headcount: count }), "Visits are for 1 to 100 people", count);
   for (const count of ["1.5", "-3", "ten"]) assert.equal(check("headcount", { headcount: count }), "Enter how many people are coming", count);
-  for (const count of ["", "  "]) assert.equal(check("headcount", { headcount: count }), undefined, "an empty headcount is fine while it is optional");
-  const required = (changes: Partial<BookingDraft>) => checkBookingField("headcount", { ...filled, ...changes }, "2026-11-02", true);
-  assert.equal(required({ headcount: "" }), "Enter how many people are coming");
-  assert.equal(required({ headcount: "12" }), undefined);
-  assert.equal(required({ headcount: "0" }), "Visits are for 1 to 100 people");
+  for (const count of ["", "  "]) assert.equal(check("headcount", { headcount: count }), "Enter how many people are coming", "a new booking needs a headcount");
 });
 
 test("a booking without a headcount leaves it out of the request", () => {

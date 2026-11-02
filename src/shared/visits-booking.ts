@@ -12,7 +12,7 @@ export type VisitProgram = (typeof visitPrograms)[number];
 /** Outreach's programs. A team with program Other is never linked to an Outreach supported team. */
 export type OutreachProgram = Exclude<VisitProgram, "Other">;
 export const programLabels: Readonly<Record<VisitProgram, string>> = {
-  FRC: "FRC", FTC: "FTC", Challenge: "FIRST LEGO League Challenge", Explore: "FIRST LEGO League Explore", Other: "Other",
+  FRC: "FRC", FTC: "FTC", Challenge: "FLL Challenge", Explore: "FLL Explore", Other: "Other",
 };
 /** Short form before a team number: "FRC 321", "FLL Challenge 12345", "Team 99X". */
 export const programShortLabels: Readonly<Record<VisitProgram, string>> = {
@@ -84,7 +84,7 @@ function text(value: unknown, field: string, label: string, maximum: number, req
 
 /** Validate a program value. */
 export function parseProgram(value: unknown, field = "program"): Result<VisitProgram> {
-  return visitPrograms.includes(value as VisitProgram) ? ok(value as VisitProgram) : problem(field, "Choose FRC, FTC, FIRST LEGO League Challenge, FIRST LEGO League Explore or Other");
+  return visitPrograms.includes(value as VisitProgram) ? ok(value as VisitProgram) : problem(field, "Choose FRC, FTC, FLL Challenge, FLL Explore or Other");
 }
 
 /**
@@ -153,7 +153,7 @@ export function parseOptionalHeadcount(value: unknown, field = "headcount"): Res
   return parseHeadcount(value, field);
 }
 
-/** The refusal when an Admin requires a headcount and none was given. */
+/** The refusal when a new booking, or a guest's change, gives no headcount. */
 export const headcountRequiredProblem: Problem = problem("headcount", "Enter how many people are coming");
 
 /** Validate an optional note to staff. Line breaks are kept. */

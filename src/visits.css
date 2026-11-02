@@ -73,7 +73,7 @@
 :where([data-module="visits"]) .visits-receipt h1:focus { outline: none; }
 :where([data-module="visits"]) .visits-receipt h1:focus-visible { outline: 3px solid var(--ui-focus); outline-offset: 2px; }
 :where([data-module="visits"]) .visits-empty { margin: 0; color: var(--ui-text-muted); }
-/* Guest calendar: five weeks of day buttons, last week to three weeks ahead. Days with open times carry a primary tint
+/* Guest calendar: five weeks of day buttons, this week to four weeks ahead. Days with open times carry a primary tint
    (and a dot on phones, where a cell holds only its date); a day whose times were all canceled has a dashed warning
    border; others are disabled. From 40rem the heading shares a row with the arrows, the weeks fill the window below the
    page title (the calendar sets --visits-calendar-top to where its grid starts on the page) and each cell lists its

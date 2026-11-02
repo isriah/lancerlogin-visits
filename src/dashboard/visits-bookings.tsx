@@ -260,7 +260,7 @@ function EditVisitDialog({ booking, teams, timeZone, onSaved, onClose }: { booki
           <Field id={ids("arrival")} label="Arrival" error={errors.arrival}><input {...fieldAria(ids("arrival"), errors.arrival)} className="ui-control" type="time" step={300} value={draft.arrival} onChange={(event) => change("arrival", event.target.value)} onBlur={blur("arrival")} /></Field>
           <Field id={ids("departure")} label="Departure" error={errors.departure}><input {...fieldAria(ids("departure"), errors.departure)} className="ui-control" type="time" step={300} value={draft.departure} onChange={(event) => change("departure", event.target.value)} onBlur={blur("departure")} /></Field>
         </div>
-        <Field id={ids("headcount")} label="Headcount" optional error={errors.headcount}>
+        <Field id={ids("headcount")} label="Headcount (approximate)" optional error={errors.headcount}>
           <input {...fieldAria(ids("headcount"), errors.headcount)} className="ui-control visits-number" type="number" inputMode="numeric" min={1} max={100} step={1} value={draft.headcount} onChange={(event) => change("headcount", event.target.value)} onBlur={blur("headcount")} />
         </Field>
         <Field id={ids("note")} label={teamNeedsLabel} optional error={errors.note}>

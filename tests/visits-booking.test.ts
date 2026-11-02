@@ -33,8 +33,8 @@ const booking: StoredBooking = {
 
 test("programs follow Outreach, with Other never linked to Outreach", () => {
   assert.deepEqual([...visitPrograms], ["FRC", "FTC", "Challenge", "Explore", "Other"]);
-  assert.equal(programLabels.Challenge, "FIRST LEGO League Challenge");
-  assert.equal(programLabels.Explore, "FIRST LEGO League Explore");
+  assert.equal(programLabels.Challenge, "FLL Challenge");
+  assert.equal(programLabels.Explore, "FLL Explore");
   assert.deepEqual(visitPrograms.map(outreachProgram), ["FRC", "FTC", "Challenge", "Explore", null]);
   assert.equal(teamLabel({ program: "Challenge", number: "12345", name: "Brick Builders" }), "FLL Challenge 12345 Brick Builders");
   assert.equal(teamLabel({ program: "Other", number: "99X", name: "Rockets" }), "Team 99X Rockets");

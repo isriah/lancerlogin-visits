@@ -130,15 +130,14 @@ function useSaving() {
 function GuestPageSettings({ settings, status, save, onDirty }: SectionProps) {
   const [hostName, setHostName] = useState(settings.hostName);
   const [introText, setIntroText] = useState(settings.introText);
-  const [headcountRequired, setHeadcountRequired] = useState(settings.headcountRequired);
   const [copied, setCopied] = useState<NoticeValue>();
   const saving = useSaving();
   const ids = useFieldIds();
   const focus = useFocusRequest();
   const link = guestPageLink(window.location.origin, status.guestPagePath);
-  const update = settingsUpdate(settings, { ...settings, hostName: singleLine(hostName), introText: introText.trim(), headcountRequired }, ["hostName", "introText", "headcountRequired"]);
+  const update = settingsUpdate(settings, { ...settings, hostName: singleLine(hostName), introText: introText.trim() }, ["hostName", "introText"]);
   useEffect(() => { onDirty(Boolean(update)); }, [Boolean(update)]);
-  useEffect(() => { setHostName(settings.hostName); setIntroText(settings.introText); setHeadcountRequired(settings.headcountRequired); }, [settings.revision]);
+  useEffect(() => { setHostName(settings.hostName); setIntroText(settings.introText); }, [settings.revision]);
 
   async function copy() {
     try { await navigator.clipboard.writeText(link); setCopied({ tone: "success", text: "Guest page link copied." }); }
@@ -161,17 +160,13 @@ function GuestPageSettings({ settings, status, save, onDirty }: SectionProps) {
     </SettingsCard>
     <SettingsCard id="visits-intro-title" title="Guest page" intro="Guests see your team's name and the intro at the top of the guest page. Guest emails name your team too." notice={saving.notice}>
       <form className="ui-form visits-form" noValidate onSubmit={(event) => void submit(event)} onKeyDown={preventImplicitSubmission}>
-        <Field id={ids("hostName")} label="Your team's name" optional error={saving.errors.hostName} help={`For example FRC 321 RoboLancers. The guest page then reads "Book a visit with FRC 321 RoboLancers". Left empty, guest pages and emails say "${defaultHostName}".`}>
+        <Field id={ids("hostName")} label="Your team's name" optional error={saving.errors.hostName} help={`For example FRC 321 RoboLancers. Guest emails and the page for changing a visit then read "Your visit to FRC 321 RoboLancers". The guest page heading always reads "Book a team visit". Left empty, guest emails say "${defaultHostName}".`}>
           <input {...fieldAria(ids("hostName"), saving.errors.hostName, true)} className="ui-control" autoComplete="organization" maxLength={maximumHostNameLength} disabled={saving.busy} value={hostName}
             onChange={(event) => { setHostName(event.target.value); saving.setErrors({}); }} />
         </Field>
         <Field id={ids("introText")} label="Intro text" optional error={saving.errors.introText} help="For example where to park and what to bring.">
           <textarea {...fieldAria(ids("introText"), saving.errors.introText, true)} className="ui-control" rows={5} maxLength={maximumIntroTextLength} disabled={saving.busy} value={introText} onChange={(event) => setIntroText(event.target.value)} />
         </Field>
-        <div className="visits-field">
-          <label className="checkbox-field"><input id={ids("headcountRequired")} className="ui-checkbox" type="checkbox" aria-describedby={`${ids("headcountRequired")}-help`} disabled={saving.busy} checked={headcountRequired} onChange={(event) => setHeadcountRequired(event.target.checked)} />Require headcount</label>
-          <span id={`${ids("headcountRequired")}-help`} className="field-help">When on, guests must say how many people are coming to book. When off, the headcount is optional, and staff see "Not given" for visits without one.</span>
-        </div>
         <div className="module-actions"><button className="ui-button ui-button--primary" type="submit" disabled={saving.busy || !update}>{saving.busy ? "Saving..." : "Save guest page"}</button></div>
       </form>
     </SettingsCard>
@@ -197,8 +192,8 @@ function TeamLookupSettings({ navigate }: SectionProps) {
   const notices = lookup && firstLookupNotices(lookup);
 
   return <div className="visits-stack">
-    <SettingsCard id="visits-lookup-title" title="Team lookup" intro="When a guest enters a team number, Guest Visits looks it up in FIRST's FRC and FTC team lists to fill in the program and team name. Only the team number is sent to FIRST. FIRST LEGO League teams are entered by hand.">
-      <p>The FRC and FTC Events API credentials are saved in{" "}
+    <SettingsCard id="visits-lookup-title" title="Team lookup" intro="When a guest enters a team number, Guest Visits looks it up in FIRST's FRC, FTC, FLL Challenge and FLL Explore team lists to fill in the program and team name. Only the team number is sent to FIRST.">
+      <p>FLL Challenge and FLL Explore teams are found with FIRST's public team search and need no credential. The FRC and FTC Events API credentials are saved in{" "}
         <a href="/settings/integrations" onClick={inPageLink(navigate, "/settings/integrations")}>Settings &gt; Integrations</a> under FIRST, which every module that looks up FIRST teams shares.</p>
       <LoadState loading={!lookup && !error} error={lookup ? "" : error} label="team lookup" onRetry={() => setVersion((value) => value + 1)} />
       {notices && <p className="ui-status settings-notice" data-tone={notices.lookup.tone} role="status">{notices.lookup.label}</p>}

@@ -112,16 +112,16 @@ test("the suggested departure is the window's end, so a new visit covers the who
   assert.equal(defaultDeparture(window, "21:00"), "");
 });
 
-test("a guest calendar view is five Sunday-first weeks from last week, and the arrows move five weeks", () => {
+test("a guest calendar view is five Sunday-first weeks from this week, and the arrows move five weeks", () => {
   const thisView = guestWeekDates("2026-10-29", 0);
   assert.equal(thisView.length, 35);
-  assert.deepEqual([thisView[0], thisView.at(-1)], ["2026-10-18", "2026-11-21"], "a Thursday's view starts the Sunday of the week before");
-  assert.ok(thisView.includes("2026-10-29") && thisView.indexOf("2026-10-25") === 7, "this week is the second row");
-  assert.deepEqual(guestWeekDates("2026-10-25", 0)[0], "2026-10-18", "on a Sunday, last week still leads");
-  assert.deepEqual(guestWeekDates("2026-10-31", 0)[0], "2026-10-18", "on a Saturday too");
+  assert.deepEqual([thisView[0], thisView.at(-1)], ["2026-10-25", "2026-11-28"], "a Thursday's view starts the Sunday of its own week");
+  assert.ok(thisView.indexOf("2026-10-29") === 4 && !thisView.includes("2026-10-24"), "this week is the top row; last week is not shown");
+  assert.deepEqual(guestWeekDates("2026-10-25", 0)[0], "2026-10-25", "on a Sunday, the view starts that day");
+  assert.deepEqual(guestWeekDates("2026-10-31", 0)[0], "2026-10-25", "on a Saturday, the view starts the Sunday before");
   const next = guestWeekDates("2026-10-29", 1);
-  assert.deepEqual([next[0], next.at(-1)], ["2026-11-22", "2026-12-26"], "the next view picks up where this one ends");
-  assert.deepEqual([guestWeekDates("2026-12-30", 0)[0], guestWeekDates("2026-12-30", 0).at(-1)], ["2026-12-20", "2027-01-23"], "views run across the new year");
+  assert.deepEqual([next[0], next.at(-1)], ["2026-11-29", "2027-01-02"], "the next view picks up where this one ends");
+  assert.deepEqual([guestWeekDates("2026-12-30", 0)[0], guestWeekDates("2026-12-30", 0).at(-1)], ["2026-12-27", "2027-01-30"], "views run across the new year");
   assert.throws(() => guestWeekDates("2026-10-32", 0), /Not a local date/);
 });
 
@@ -187,8 +187,8 @@ test("guests page from the view with this week to the one holding the booking ho
   assert.equal(guestLastView("2026-10-25", 56, new Map()), 1);
   assert.equal(guestLastView("2026-10-29", 1, new Map()), 0, "a one-day horizon stays on this view");
   assert.equal(guestLastView("2026-10-29", 0, new Map()), 0);
-  assert.equal(guestLastView("2026-10-29", 24, new Map()), 0, "a horizon ending on the view's last Saturday stays");
-  assert.equal(guestLastView("2026-10-29", 25, new Map()), 1, "one day more opens the next view");
+  assert.equal(guestLastView("2026-10-29", 31, new Map()), 0, "a horizon ending on the view's last Saturday stays");
+  assert.equal(guestLastView("2026-10-29", 32, new Map()), 1, "one day more opens the next view");
   const late = guestDays([guestWindow("a", "2027-01-04", "16:00", "20:00")], new Set(["a"]));
   assert.equal(guestLastView("2026-10-29", 7, late), 2, "a posted window past the horizon can still be reached");
 });
