@@ -4,7 +4,7 @@ import type { PublicTeamSearch, TeamMatch } from "../src/shared/visits-api.ts";
 import { manualReason, searchableNumber, teamAfterSearch, teamEntryMode, type TeamSearch } from "../src/dashboard/visits-team-entry.ts";
 
 const frc: TeamMatch = { program: "FRC", number: "99954", name: "Test Team Beta", location: "Testville, CA", source: "first" };
-const ftc: TeamMatch = { program: "FTC", number: "99954", name: "Gear Heads", location: "Austin, TX", source: "first" };
+const ftc: TeamMatch = { program: "FTC", number: "99954", name: "Test Heads", location: "Austin, TX", source: "first" };
 const found = (matches: TeamMatch[], complete = true): TeamSearch => ({ status: "found", number: "99954", result: { matches, complete } satisfies PublicTeamSearch });
 
 test("only plain numbers of up to six digits are looked up", () => {
@@ -39,7 +39,7 @@ test("the form says why it asks by hand", () => {
 test("a lookup fills, keeps or clears the program and name", () => {
   const empty = { program: "" as const, teamName: "" };
   assert.deepEqual(teamAfterSearch([frc], empty, false), { program: "FRC", teamName: "Test Team Beta" });
-  assert.deepEqual(teamAfterSearch([frc, ftc], { program: "FTC", teamName: "old" }, true), { program: "FTC", teamName: "Gear Heads" }, "a chosen program among the matches keeps its match");
+  assert.deepEqual(teamAfterSearch([frc, ftc], { program: "FTC", teamName: "old" }, true), { program: "FTC", teamName: "Test Heads" }, "a chosen program among the matches keeps its match");
   assert.deepEqual(teamAfterSearch([frc, ftc], { program: "FLL", teamName: "Bricks" } as never, true), empty, "values an earlier lookup filled are cleared");
   assert.deepEqual(teamAfterSearch([], { program: "Other", teamName: "Typed" }, false), { program: "Other", teamName: "Typed" }, "values the guest typed stay");
 });

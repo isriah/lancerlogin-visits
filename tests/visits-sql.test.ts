@@ -149,10 +149,10 @@ test("teams use Outreach's programs, program-specific numbers and one active tea
   await insert(db, "visits_teams", teamRow({ id: "archived", program: "FRC", number: "99921", name: "Merged copy", archived: 1 }));
   const bad = [
     { program: "FLL" }, { program: "other" }, { number: "099921" }, { number: "12a" }, { number: "1234567" }, { number: "" },
-    { program: "Other", number: "99x" }, { program: "Other", number: "ABCDEFGHIJK" }, { name: "" }, { program: "Other", number: "7", outreach_team_id: "o-1" },
+    { program: "Other", number: "99x" }, { program: "Other", number: "ABCDEFGHIJK" }, { name: "" }, { program: "Other", number: "99907", outreach_team_id: "o-1" },
   ];
-  for (const [index, values] of bad.entries()) await assert.rejects(insert(db, "visits_teams", teamRow({ id: `bad-${index}`, number: String(9000 + index), ...values })), check, JSON.stringify(values));
-  await insert(db, "visits_teams", teamRow({ id: "linked", number: "4000", outreach_team_id: "outreach-team-7" }));
+  for (const [index, values] of bad.entries()) await assert.rejects(insert(db, "visits_teams", teamRow({ id: `bad-${index}`, number: String(99900 + index), ...values })), check, JSON.stringify(values));
+  await insert(db, "visits_teams", teamRow({ id: "linked", number: "99940", outreach_team_id: "outreach-team-7" }));
 });
 
 test("bookings check their fields and reference their window and team", async () => {

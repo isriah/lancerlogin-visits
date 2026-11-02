@@ -48,7 +48,7 @@ test("without Outreach, or without a grant, nothing is queued and visits have no
   assert.deepEqual(await status(harness, "operator"), { available: false, granted: false });
   harness.outreach.operatorAccess = true;
   assert.deepEqual(await status(harness, "operator"), { available: true, granted: false });
-  const second = await book(harness, { teamNumber: "2", teamName: "Two", contactEmail: "two@example.org" });
+  const second = await book(harness, { teamNumber: "99902", teamName: "Two", contactEmail: "two@example.org" });
   assert.equal((await harness.call("PUT", `/admin/visits/bookings/${second.id}`, { body: { revision: 0, date: "2026-11-04", arrival: "18:00", departure: "19:00" } })).status, 200);
   assert.equal((await harness.job()).outreachGranted, false);
   assert.deepEqual(records(harness), []);
@@ -59,8 +59,8 @@ test("without Outreach, or without a grant, nothing is queued and visits have no
 test("with a grant, a booking queues one record and the job links the supported team and its Team Support activity", async () => {
   const harness = await withOutreach({ granted: true });
   harness.outreach.teams.push(
-    { id: "outreach-archived", number: "1234", name: "Old Gearheads", program: "FRC", archived: true },
-    { id: "outreach-active", number: "1234", name: "Gearheads", program: "FRC", archived: false },
+    { id: "outreach-archived", number: "99934", name: "Old Testheads", program: "FRC", archived: true },
+    { id: "outreach-active", number: "99934", name: "Testheads", program: "FRC", archived: false },
   );
   const booked = await book(harness);
   // The guest request has no signed-in user, so its client meant a grant; it never calls Outreach itself.
@@ -74,11 +74,11 @@ test("with a grant, a booking queues one record and the job links the supported 
   assert.equal(pass.delivered, 1, "the confirmation email went at booking; the pass did the Outreach record");
   assert.deepEqual(operations(harness), ["find-teams", "ensure-team-support-activity"]);
   assert.deepEqual(harness.outreach.calls.map((call) => [call.input, call.via]), [
-    [{ number: "1234", program: "FRC" }, "grant"],
+    [{ number: "99934", program: "FRC" }, "grant"],
     [{ teamId: "outreach-active", serviceDate: "2026-11-02" }, "grant"],
   ]);
   assert.deepEqual(harness.outreach.activities, [{ id: "outreach-activity-1", teamId: "outreach-active", serviceDate: "2026-11-02" }]);
-  assert.deepEqual(harness.db.rows("SELECT number, outreach_team_id FROM visits_teams").map((row) => ({ ...row })), [{ number: "1234", outreach_team_id: "outreach-active" }]);
+  assert.deepEqual(harness.db.rows("SELECT number, outreach_team_id FROM visits_teams").map((row) => ({ ...row })), [{ number: "99934", outreach_team_id: "outreach-active" }]);
   assert.deepEqual((await detail(harness, booked.id)).outreach, { state: "recorded", activityId: "outreach-activity-1" });
   assert.deepEqual(records(harness), [{ booking_id: booked.id, status: "delivered", attempts: 1, next_attempt_ms: null, external_id: "outreach-activity-1", last_error: null }]);
   const [report] = await visitReportRecords(harness.db as never, civil, newYork, { to: "2026-12-31" });
@@ -87,11 +87,11 @@ test("with a grant, a booking queues one record and the job links the supported 
   await harness.job();
   assert.equal(harness.outreach.calls.length, 2);
   // A team Outreach does not know is created; teams with program Other are never recorded.
-  const created = await book(harness, { teamNumber: "4321", teamName: "Robo Owls", program: "FTC", contactEmail: "owls@example.org", date: "2026-11-04" });
+  const created = await book(harness, { teamNumber: "99941", teamName: "Test Owls", program: "FTC", contactEmail: "owls@example.org", date: "2026-11-04" });
   const other = await book(harness, { teamNumber: "SCOUTS", teamName: "Scout troop", program: "Other", contactEmail: "scouts@example.org" });
   await harness.job();
   assert.deepEqual(operations(harness).slice(2), ["find-teams", "ensure-team", "ensure-team-support-activity"]);
-  assert.deepEqual(harness.outreach.teams.at(-1), { id: "outreach-team-1", number: "4321", name: "Robo Owls", program: "FTC", archived: false });
+  assert.deepEqual(harness.outreach.teams.at(-1), { id: "outreach-team-1", number: "99941", name: "Test Owls", program: "FTC", archived: false });
   assert.deepEqual((await detail(harness, created.id)).outreach, { state: "recorded", activityId: "outreach-activity-2" });
   assert.equal((await detail(harness, other.id)).outreach, null);
   assert.equal(harness.count("SELECT COUNT(*) AS n FROM visits_notifications WHERE channel='outreach' AND booking_id=?", other.id), 0);
@@ -145,7 +145,7 @@ test("a visit canceled before the job records it is skipped, and a removed visit
   const harness = await withOutreach({ granted: true });
   const first = await book(harness);
   await harness.call("POST", `/admin/visits/bookings/${first.id}/cancel`, { body: { revision: 0 } });
-  const second = await book(harness, { teamNumber: "2", teamName: "Two", contactEmail: "two@example.org" });
+  const second = await book(harness, { teamNumber: "99902", teamName: "Two", contactEmail: "two@example.org" });
   await harness.job();
   assert.deepEqual(records(harness).map((row) => [row.booking_id, row.status, row.last_error]), [
     [first.id, "skipped", "Canceled visits are not recorded in Outreach"],
@@ -160,13 +160,13 @@ test("a visit canceled before the job records it is skipped, and a removed visit
 
 test("Outreach refusals fail at once with Outreach's message; other failures retry with backoff; a lost team link is found again", async () => {
   const harness = await withOutreach({ granted: true });
-  harness.outreach.teams.push({ id: "outreach-retired", number: "1234", name: "Gearheads", program: "FRC", archived: true });
+  harness.outreach.teams.push({ id: "outreach-retired", number: "99934", name: "Testheads", program: "FRC", archived: true });
   const refused = await book(harness);
-  const flaky = await book(harness, { teamNumber: "77", teamName: "Lucky", contactEmail: "lucky@example.org" });
+  const flaky = await book(harness, { teamNumber: "99977", teamName: "Lucky", contactEmail: "lucky@example.org" });
   harness.outreach.failures.push({ status: 500, operation: "ensure-team-support-activity", message: "Outreach could not complete the request (reference r-1)" });
   await harness.job();
   const failed = await detail(harness, refused.id);
-  assert.deepEqual(failed.outreach, { state: "failed", activityId: null, error: "Supported team 1234 (FRC) is archived in Outreach. Restore it there first." });
+  assert.deepEqual(failed.outreach, { state: "failed", activityId: null, error: "Supported team 99934 (FRC) is archived in Outreach. Restore it there first." });
   assert.deepEqual(records(harness).map((row) => [row.status, row.attempts, row.next_attempt_ms]), [["failed", 1, null], ["pending", 1, harness.clock.now + 300_000]]);
   assert.deepEqual((await detail(harness, flaky.id)).outreach, { state: "pending", activityId: null, error: "Outreach could not complete the request (reference r-1)" });
   assert.deepEqual((await harness.call("GET", "/admin/visits/bookings?scope=attention")).body.map((item: { id: string }) => item.id), [refused.id]);
@@ -180,7 +180,7 @@ test("Outreach refusals fail at once with Outreach's message; other failures ret
   assert.deepEqual(operations(harness).slice(calls), ["ensure-team-support-activity"]);
   assert.equal((await detail(harness, flaky.id)).outreach.state, "recorded");
   // A network error without a status retries too.
-  const network = await book(harness, { teamNumber: "88", teamName: "Eights", contactEmail: "eights@example.org" });
+  const network = await book(harness, { teamNumber: "99988", teamName: "Eights", contactEmail: "eights@example.org" });
   harness.outreach.failures.push({ message: "The connection closed" });
   await harness.job();
   assert.deepEqual((await detail(harness, network.id)).outreach, { state: "pending", activityId: null, error: "The connection closed" });
@@ -188,10 +188,10 @@ test("Outreach refusals fail at once with Outreach's message; other failures ret
   await harness.job();
   assert.equal((await detail(harness, network.id)).outreach.state, "recorded");
   // Outreach no longer has the linked team: the next visit links the team again and is recorded.
-  const linkOf = () => harness.db.rows<{ outreach_team_id: string }>("SELECT outreach_team_id FROM visits_teams WHERE number='88'")[0]!.outreach_team_id;
+  const linkOf = () => harness.db.rows<{ outreach_team_id: string }>("SELECT outreach_team_id FROM visits_teams WHERE number='99988'")[0]!.outreach_team_id;
   const gone = linkOf();
   harness.outreach.teams = harness.outreach.teams.filter((team) => team.id !== gone);
-  const next = await book(harness, { teamNumber: "88", teamName: "Eights", contactEmail: "eights@example.org", date: "2026-11-09" });
+  const next = await book(harness, { teamNumber: "99988", teamName: "Eights", contactEmail: "eights@example.org", date: "2026-11-09" });
   const before = harness.outreach.calls.length;
   await harness.job();
   assert.deepEqual(operations(harness).slice(before), ["ensure-team-support-activity", "find-teams", "ensure-team", "ensure-team-support-activity"]);
@@ -222,7 +222,7 @@ test("Record in Outreach catches up visits booked before the grant, with the gra
   const harness = await withOutreach({ granted: false });
   const older = await book(harness);
   const other = await book(harness, { teamNumber: "SCOUTS", teamName: "Scout troop", program: "Other", contactEmail: "scouts@example.org" });
-  const canceled = await book(harness, { teamNumber: "2", teamName: "Two", contactEmail: "two@example.org" });
+  const canceled = await book(harness, { teamNumber: "99902", teamName: "Two", contactEmail: "two@example.org" });
   await harness.call("POST", `/admin/visits/bookings/${canceled.id}/cancel`, { body: { revision: 0 } });
   assert.deepEqual(records(harness), []);
   // An Operator without Outreach access, and no grant: refused with what to do.
@@ -250,7 +250,7 @@ test("Record in Outreach catches up visits booked before the grant, with the gra
   assert.equal(harness.outreach.teams.length, 1);
   assert.equal(harness.outreach.activities.length, 1);
   // Without a grant nothing retries later, so a provider failure is final and Needs attention lists it.
-  const later = await book(harness, { teamNumber: "3", teamName: "Three", contactEmail: "three@example.org" });
+  const later = await book(harness, { teamNumber: "99903", teamName: "Three", contactEmail: "three@example.org" });
   harness.outreach.failures.push({ status: 500, message: "Outreach could not complete the request" });
   const failed = await harness.call("POST", "/admin/visits/outreach", { body: { bookingIds: [later.id] } });
   assert.deepEqual(failed.body.results, [{ bookingId: later.id, state: "failed", activityId: null, error: "Outreach could not complete the request" }]);
@@ -265,7 +265,7 @@ test("Record in Outreach records at most 50 visits at a time; with a grant the r
   const harness = await withOutreach({ granted: true });
   harness.outreach.granted = false;
   const ids: string[] = [];
-  for (let index = 0; index < 52; index += 1) ids.push((await book(harness, { teamNumber: String(1000 + index), teamName: `Team ${index}`, contactEmail: `team${index}@example.org`, date: index % 2 ? "2026-11-04" : "2026-11-02" })).id);
+  for (let index = 0; index < 52; index += 1) ids.push((await book(harness, { teamNumber: String(99900 + index), teamName: `Team ${index}`, contactEmail: `team${index}@example.org`, date: index % 2 ? "2026-11-04" : "2026-11-02" })).id);
   const withoutGrant = await harness.call("POST", "/admin/visits/outreach", { body: { bookingIds: ids } });
   assert.deepEqual(withoutGrant.body.results.map((result: { state: string }) => result.state), [...Array(50).fill("recorded"), "skipped", "skipped"]);
   assert.match(withoutGrant.body.results[51].error, /at most 50 visits at a time/);
@@ -293,7 +293,7 @@ test("revoking the grant: nothing new is queued, waiting records stay until acce
   assert.deepEqual(stored(harness), { outreach_granted: 0, outreach_checked_ms: harness.clock.now });
   assert.deepEqual(records(harness).map((row) => row.status), ["pending"]);
   assert.deepEqual(harness.outreach.calls, []);
-  const later = await book(harness, { teamNumber: "2", teamName: "Two", contactEmail: "two@example.org" });
+  const later = await book(harness, { teamNumber: "99902", teamName: "Two", contactEmail: "two@example.org" });
   await harness.call("PUT", `/admin/visits/bookings/${waiting.id}`, { body: { revision: 0, date: "2026-11-04", arrival: "18:00", departure: "19:00" } });
   assert.equal(records(harness).length, 1, "nothing new is queued");
   assert.deepEqual(await status(harness), { available: true, granted: false });
@@ -305,7 +305,7 @@ test("revoking the grant: nothing new is queued, waiting records stay until acce
   assert.equal((await detail(harness, later.id)).outreach, null);
   // Outreach disabled: bookings and the job carry on, and nothing is queued.
   harness.outreach.ready = false;
-  const third = await book(harness, { teamNumber: "3", teamName: "Three", contactEmail: "three@example.org" });
+  const third = await book(harness, { teamNumber: "99903", teamName: "Three", contactEmail: "three@example.org" });
   const after = await harness.job();
   assert.equal(after.outreachGranted, false);
   assert.equal(harness.count("SELECT COUNT(*) AS n FROM visits_notifications WHERE channel='outreach' AND booking_id=?", third.id), 0);
@@ -358,7 +358,7 @@ test("an Outreach record whose sender stopped gives way to a newer waiting recor
   assert.equal(pass.recovered, 0);
   assert.deepEqual(records(harness).map((row) => row.status), ["skipped", "delivered"]);
   // A retried record also gives way when another one waits.
-  const second = await book(harness, { teamNumber: "2", teamName: "Two", contactEmail: "two@example.org" });
+  const second = await book(harness, { teamNumber: "99902", teamName: "Two", contactEmail: "two@example.org" });
   let queued = false;
   harness.outreach.beforeAnswer = async () => {
     if (queued) return;
@@ -374,16 +374,16 @@ test("an Outreach record whose sender stopped gives way to a newer waiting recor
 
 test("merging a team recorded under another Outreach team records its visits again for the kept team", async () => {
   const harness = await withOutreach({ granted: true });
-  const typo = await book(harness, { teamNumber: "1243" });
+  const typo = await book(harness, { teamNumber: "99943" });
   const keep = await book(harness, { contactEmail: "keep@example.org", date: "2026-11-04" });
   await harness.job();
   const teams = (await harness.call("GET", "/admin/visits/teams")).body as { id: string; number: string; outreachTeamId: string }[];
-  const from = teams.find((team) => team.number === "1243")!;
-  const into = teams.find((team) => team.number === "1234")!;
+  const from = teams.find((team) => team.number === "99943")!;
+  const into = teams.find((team) => team.number === "99934")!;
   assert.notEqual(from.outreachTeamId, into.outreachTeamId);
   assert.equal((await harness.call("POST", `/admin/visits/teams/${from.id}/merge`, { body: { intoId: into.id } })).status, 200);
   let shown = await detail(harness, typo.id);
-  assert.deepEqual([shown.team.number, shown.outreach, shown.attention], ["1234", { state: "pending", activityId: null }, { state: "needed", reason: "outreach-activity-kept" }]);
+  assert.deepEqual([shown.team.number, shown.outreach, shown.attention], ["99934", { state: "pending", activityId: null }, { state: "needed", reason: "outreach-activity-kept" }]);
   await harness.job();
   shown = await detail(harness, typo.id);
   assert.equal(shown.outreach.state, "recorded");

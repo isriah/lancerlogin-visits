@@ -40,7 +40,7 @@ test("a guest books a visit: one batch saves it, and the confirmation email goes
   assert.equal(harness.count("SELECT COUNT(*) AS n FROM visits_manage_tokens WHERE token_hash=?", token), 0);
   assert.deepEqual(harness.db.rows("SELECT channel, kind, status, attempts, external_id FROM visits_notifications").map((row) => ({ ...row })), [{ channel: "email", kind: "booked", status: "delivered", attempts: 1, external_id: "email-1" }]);
   // Guest text is escaped in the HTML.
-  const second = await book(harness, { teamNumber: "99", teamName: "<b>Bots</b>", contactEmail: "lee@example.org" });
+  const second = await book(harness, { teamNumber: "99999", teamName: "<b>Bots</b>", contactEmail: "lee@example.org" });
   assert.ok(second.id);
   assert.ok(harness.email.sent[1]!.html!.includes("&lt;b&gt;Bots&lt;/b&gt;"));
 });
@@ -102,25 +102,25 @@ test("teams book overlapping times and each sees the other; the public page show
   const harness = visitsHarness();
   await withShopSeries(harness);
   await book(harness);
-  await book(harness, { teamNumber: "5678", teamName: "Robo Owls", program: "FTC", contactName: "Sam Lead", contactEmail: "sam@example.org", contactPhone: "555-010-9999", note: "Secret note", arrival: "19:00", departure: "21:00", headcount: 5 });
+  await book(harness, { teamNumber: "99956", teamName: "Test Owls", program: "FTC", contactName: "Sam Lead", contactEmail: "sam@example.org", contactPhone: "555-010-9999", note: "Secret note", arrival: "19:00", departure: "21:00", headcount: 5 });
   const calendar = await harness.call("GET", "/public/visits/calendar", { role: null, origin: null });
   assert.equal(calendar.status, 200);
   assert.equal(calendar.body.timeZone, "America/New_York");
   assert.equal(calendar.body.horizonDays, 56);
   const monday = calendar.body.windows[0];
   assert.equal(monday.teamCount, 2);
-  assert.deepEqual(monday.visits.map((visit: { teamName: string }) => visit.teamName), ["Gearheads", "Robo Owls"]);
+  assert.deepEqual(monday.visits.map((visit: { teamName: string }) => visit.teamName), ["Testheads", "Test Owls"]);
   assert.deepEqual(Object.keys(monday.visits[0]).sort(), ["arrivalMs", "departureMs", "headcount", "program", "teamName", "teamNumber"]);
   const text = JSON.stringify(calendar.body);
   for (const secret of ["pat@example.org", "sam@example.org", "555-010", "Secret note", "Two mentors", "Pat Coach", "Sam Lead"]) assert.ok(!text.includes(secret), secret);
   // A known team fills in its saved name.
-  assert.deepEqual((await harness.call("GET", "/public/visits/team?program=FTC&number=05678", { role: null })).body, { team: { number: "5678", name: "Robo Owls", program: "FTC" } });
-  assert.deepEqual((await harness.call("GET", "/public/visits/team?program=FRC&number=9", { role: null })).body, { team: null });
+  assert.deepEqual((await harness.call("GET", "/public/visits/team?program=FTC&number=099956", { role: null })).body, { team: { number: "99956", name: "Test Owls", program: "FTC" } });
+  assert.deepEqual((await harness.call("GET", "/public/visits/team?program=FRC&number=99909", { role: null })).body, { team: null });
   assert.equal((await harness.call("GET", "/public/visits/team?program=FRC&number=abc", { role: null })).status, 400);
   // A known team keeps its saved name, so the page never lets a guest rename a team.
   await book(harness, { teamName: "Renamed", contactEmail: "other@example.org", date: "2026-11-04" });
   assert.equal(harness.count("SELECT COUNT(*) AS n FROM visits_teams"), 2);
-  assert.equal(harness.db.rows<{ name: string }>("SELECT name FROM visits_teams WHERE number='1234'")[0]!.name, "Gearheads");
+  assert.equal(harness.db.rows<{ name: string }>("SELECT name FROM visits_teams WHERE number='99934'")[0]!.name, "Testheads");
 });
 
 test("public posts need the dashboard origin and their input in the body", async () => {
@@ -130,7 +130,7 @@ test("public posts need the dashboard origin and their input in the body", async
     const response = await harness.call("POST", "/public/visits/bookings", { body: bookingRequest(), role: null, origin });
     assert.equal(response.status, 403, String(origin));
   }
-  assert.equal((await harness.call("POST", "/public/visits/bookings?teamNumber=1", { body: bookingRequest(), role: null })).status, 400);
+  assert.equal((await harness.call("POST", "/public/visits/bookings?teamNumber=99981", { body: bookingRequest(), role: null })).status, 400);
   assert.equal((await harness.call("GET", "/public/visits/bookings", { role: null })).status, 405);
   assert.equal((await harness.call("GET", "/public/visits/unknown", { role: null })).status, 404);
   assert.equal(harness.count("SELECT COUNT(*) AS n FROM visits_bookings"), 0);
@@ -140,13 +140,13 @@ test("the emailed link shows its own booking; opening it changes nothing, and GE
   const harness = visitsHarness();
   await withShopSeries(harness);
   const first = await book(harness);
-  await book(harness, { teamNumber: "77", teamName: "Other team", contactEmail: "other@example.org" });
+  await book(harness, { teamNumber: "99977", teamName: "Other team", contactEmail: "other@example.org" });
   const token = FakeEmail.token(harness.email.sent[0]!);
   const shown = await manage(harness, "manage", { token });
   assert.equal(shown.status, 200);
   assert.equal(shown.body.booking.id, first.id);
   assert.equal(shown.body.booking.contactEmail, "pat@example.org");
-  assert.equal(shown.body.booking.team.name, "Gearheads");
+  assert.equal(shown.body.booking.team.name, "Testheads");
   assert.ok(shown.body.windows.every((window: { status: string }) => window.status === "open"));
   for (let index = 0; index < 3; index += 1) await manage(harness, "manage", { token });
   assert.equal(harness.db.rows<{ revision: number }>("SELECT revision FROM visits_bookings WHERE id=?", first.id)[0]!.revision, 0);
@@ -169,7 +169,7 @@ test("a link works only for its own booking, until the visit ends, unless revoke
   const harness = visitsHarness();
   await withShopSeries(harness);
   const first = await book(harness);
-  const second = await book(harness, { teamNumber: "77", teamName: "Other team", contactEmail: "other@example.org" });
+  const second = await book(harness, { teamNumber: "99977", teamName: "Other team", contactEmail: "other@example.org" });
   const [firstToken, secondToken] = harness.email.sent.map((message) => FakeEmail.token(message));
   // Canceling with the first booking's link changes only the first booking.
   const canceled = await manage(harness, "manage/cancel", { token: firstToken, revision: 0 });
@@ -247,7 +247,7 @@ test("every new booking needs a headcount, whatever the old Require headcount se
   const harness = visitsHarness();
   await withShopSeries(harness);
   assert.equal((await harness.call("GET", "/public/visits/calendar", { role: null })).body.headcountRequired, true);
-  const { headcount: _left, ...withoutHeadcount } = bookingRequest({ teamNumber: "5", teamName: "Test Team A", contactEmail: "team-a@example.test" });
+  const { headcount: _left, ...withoutHeadcount } = bookingRequest({ teamNumber: "99905", teamName: "Test Team A", contactEmail: "team-a@example.test" });
   for (const body of [withoutHeadcount, { ...withoutHeadcount, headcount: null }, { ...withoutHeadcount, headcount: "" }]) {
     const refused = await harness.call("POST", "/public/visits/bookings", { body, role: null });
     assert.deepEqual([refused.status, refused.body], [400, { error: "Enter how many people are coming", field: "headcount" }], JSON.stringify(body.headcount));

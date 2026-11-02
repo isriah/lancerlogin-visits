@@ -54,13 +54,13 @@ test("team search asks services.first for every FIRST program, and the job never
   await db.batch(api.freshEnable!(db as never, { installationId: "primary", now: "2026-10-28T15:00:00.000Z" }) as never);
   const first = new FakeFirstConnection();
   first.configure("FRC");
-  first.team("FRC", "9001", "Test Team Alpha", "Testville, PA");
+  first.team("FRC", "99901", "Test Team Alpha", "Testville, PA");
   const services = context(db, "GET", "/", undefined, undefined, first).services;
   await api.jobs!["visits.notifications"]!({ db: db as never, env: {}, services: services as never });
   assert.deepEqual(first.searches, [], "the job sends nothing to FIRST");
-  const response = await api.routes!["/public/visits"]!(context(db, "GET", "/public/visits/team-search?number=9001", undefined, undefined, first) as never);
-  assert.deepEqual(await response!.json(), { matches: [{ number: "9001", name: "Test Team Alpha", program: "FRC", location: "Testville, PA", source: "first" }], complete: false });
-  assert.deepEqual(first.searches, [{ number: "9001", programs: ["FRC", "FTC", "Challenge", "Explore"] }]);
+  const response = await api.routes!["/public/visits"]!(context(db, "GET", "/public/visits/team-search?number=99901", undefined, undefined, first) as never);
+  assert.deepEqual(await response!.json(), { matches: [{ number: "99901", name: "Test Team Alpha", program: "FRC", location: "Testville, PA", source: "first" }], complete: false });
+  assert.deepEqual(first.searches, [{ number: "99901", programs: ["FRC", "FTC", "Challenge", "Explore"] }]);
 });
 
 test("routes, the job and the report run through Core's context with the installation time zone", async () => {

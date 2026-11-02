@@ -13,7 +13,7 @@ const base: Pick<StaffBooking, "status" | "removed" | "attention" | "email" | "o
 
 test("teams and programs read the way guests write them", () => {
   assert.equal(teamText({ number: "99921", name: "Test Team Alpha", program: "FRC" }), "FRC 99921 Test Team Alpha");
-  assert.equal(teamText({ number: "12345", name: "Bricks", program: "Challenge" }), "FLL Challenge 12345 Bricks");
+  assert.equal(teamText({ number: "99945", name: "Bricks", program: "Challenge" }), "FLL Challenge 99945 Bricks");
   assert.equal(teamText({ number: "99X", name: "Scouts", program: "Other" }), "Team 99X Scouts");
   assert.deepEqual(programChoices.map((choice) => choice.label), ["FRC", "FTC", "FLL Challenge", "FLL Explore", "Other"]);
 });
@@ -85,7 +85,7 @@ test("history reads in words, newest first, with every older entry restorable", 
 
 test("guest teams sort by program then number, and merge only into active teams of the same program", () => {
   const team = (id: string, program: StaffTeam["program"], number: string, archived = false): StaffTeam => ({ id, program, number, name: `Team ${id}`, archived, revision: 1, visitCount: 0, outreachTeamId: null });
-  const teams = [team("a", "FTC", "20"), team("b", "FRC", "999100"), team("c", "FRC", "99921"), team("d", "Other", "A1"), team("e", "FRC", "99921", true), team("f", "FRC", "99")];
+  const teams = [team("a", "FTC", "99920"), team("b", "FRC", "999100"), team("c", "FRC", "99921"), team("d", "Other", "A1"), team("e", "FRC", "99921", true), team("f", "FRC", "99901")];
   assert.deepEqual(sortTeams(teams).map((item) => item.id), ["f", "c", "e", "b", "a", "d"]);
   assert.deepEqual(mergeTargets(teams, teams[2]!).map((item) => item.id), ["f", "b"]);
   assert.deepEqual(mergeTargets(teams, teams[0]!), []);
@@ -120,15 +120,15 @@ test("Record in Outreach results read per visit and sum up with the visits that 
   assert.equal(outreachResultText({ state: "pending" }), "Waiting: Guest Visits records it on its next notification pass.");
   assert.equal(outreachResultText({ state: "failed", error: "Supported team is archived" }), "Outreach did not record it: Supported team is archived");
   assert.equal(outreachResultText({ state: "skipped", error: "Canceled visits are not recorded in Outreach" }), "Not recorded: Canceled visits are not recorded in Outreach");
-  const names: Record<string, string> = { b1: "FRC 1234 Gearheads", b2: "FTC 8 Eights", b3: "Team X1 Scouts", b4: "FRC 99 Nines" };
+  const names: Record<string, string> = { b1: "FRC 99934 Testheads", b2: "FTC 99908 Eights", b3: "Team X1 Scouts", b4: "FRC 99999 Nines" };
   const nameOf = (id: string) => names[id];
-  assert.deepEqual(outreachRecordSummary([{ bookingId: "b1", state: "recorded", activityId: "a1" }], nameOf), { tone: "success", text: "FRC 1234 Gearheads is recorded in Outreach as Team Support." });
+  assert.deepEqual(outreachRecordSummary([{ bookingId: "b1", state: "recorded", activityId: "a1" }], nameOf), { tone: "success", text: "FRC 99934 Testheads is recorded in Outreach as Team Support." });
   assert.deepEqual(outreachRecordSummary([
     { bookingId: "b1", state: "recorded", activityId: "a1" }, { bookingId: "b2", state: "recorded", activityId: "a2" }, { bookingId: "b4", state: "pending", activityId: null },
     { bookingId: "b3", state: "skipped", activityId: null, error: "Outreach does not support teams with program Other" },
   ], nameOf), { tone: "warning", text: "Recorded 2 visits in Outreach as Team Support. 1 visit waits for the next notification pass. Not recorded: Team X1 Scouts (Outreach does not support teams with program Other)." });
   assert.deepEqual(outreachRecordSummary([{ bookingId: "b2", state: "failed", activityId: null, error: "Refused (409)" }, { bookingId: "gone", state: "skipped", activityId: null }], nameOf), {
-    tone: "error", text: "Outreach did not record 1 visit: FTC 8 Eights (Refused (409)). Not recorded: A visit.",
+    tone: "error", text: "Outreach did not record 1 visit: FTC 99908 Eights (Refused (409)). Not recorded: A visit.",
   });
   assert.deepEqual(outreachRecordSummary([], nameOf), { tone: "neutral", text: "Nothing was recorded." });
 });

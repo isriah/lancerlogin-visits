@@ -172,7 +172,7 @@ test("the team lookup runs only for a valid number and fills only an empty or lo
   assert.equal(lookupNumber("FRC", "32a"), null);
   assert.equal(lookupNumber("FRC", "099921"), "99921");
   assert.equal(lookupNumber("Other", "99x"), "99X");
-  assert.equal(teamLookupQuery("Challenge", "12345"), "program=Challenge&number=12345");
+  assert.equal(teamLookupQuery("Challenge", "99945"), "program=Challenge&number=99945");
   const found = { number: "99921", name: "Test Team Alpha", program: "FRC" as const };
   assert.equal(lookupFill(found, "", null), "Test Team Alpha");
   assert.equal(lookupFill(found, "Old lookup", "Old lookup"), "Test Team Alpha");
