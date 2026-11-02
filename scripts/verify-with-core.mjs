@@ -2,13 +2,15 @@
 // Verify this plugin commit composed into a pinned LancerLogin Core checkout.
 //
 //   node scripts/verify-with-core.mjs core-pin                         print the pinned Core repository, commit and tag
-//   node scripts/verify-with-core.mjs --core <dir> [--mode acceptance|fast]
+//   node scripts/verify-with-core.mjs --core <dir> [--mode acceptance|fast] [--unpinned]
 //
 // The Core commit is pinned in .github/plugin-release.json as a full commit SHA; the release tag beside it is recorded
 // for people. Verification composes this exact commit into the Core checkout as an installation build would (Core's
 // official plugins included), using Core's own composer, which validates the package, manifest, API contribution,
 // migrations and peer dependencies. It then typechecks the composed Worker and dashboard and, in acceptance mode, builds
 // them. Core's generated files are restored afterwards, whether or not verification passed.
+// In CI a Core checkout at any other commit is refused, unless --unpinned says that is intended: Verify's non-blocking
+// "verify against Core main" entry checks this plugin against Core's main branch that way.
 //
 // Core and its official plugins are public, so no token is needed. LANCERLOGIN_PLUGIN_TOKEN is passed through only when
 // set, for a Core that composes private plugin repositories.
@@ -55,7 +57,7 @@ function npm(cwd, label, args, env) {
   return run(cwd, label, "npm", args, env);
 }
 
-function verify({ core, mode }) {
+function verify({ core, mode, unpinned = false }) {
   const config = readConfig();
   const pkg = JSON.parse(readFileSync(join(pluginRoot, "package.json"), "utf8"));
   const moduleId = pkg.lancerlogin?.moduleId;
@@ -70,7 +72,7 @@ function verify({ core, mode }) {
   const pinned = `${config.core.commit}${config.core.tag ? ` (${config.core.tag})` : ""}`;
   if (coreCommit !== config.core.commit) {
     const message = `Core checkout is at ${coreCommit ?? "an unknown commit"}, not the pinned ${pinned}`;
-    if (process.env.CI) throw new Error(message);
+    if (process.env.CI && !unpinned) throw new Error(message);
     console.warn(`Warning: ${message}. Results apply to that Core commit only.`);
   }
   console.log(`Verifying ${moduleId} ${pkg.version} at ${commit} against Core ${config.core.repository} ${coreCommit === config.core.commit ? pinned : coreCommit ?? "(unknown)"} (${mode})`);
@@ -105,9 +107,10 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
         const value = () => { const next = args[++index]; if (!next) throw new Error(`${args[index - 1]} needs a value`); return next; };
         if (args[index] === "--core") options.core = value();
         else if (args[index] === "--mode") options.mode = value();
+        else if (args[index] === "--unpinned") options.unpinned = true;
         else throw new Error(`Unknown argument ${args[index]}`);
       }
-      if (!options.core || !["acceptance", "fast"].includes(options.mode)) throw new Error("Usage: node scripts/verify-with-core.mjs core-pin | --core <dir> [--mode acceptance|fast]");
+      if (!options.core || !["acceptance", "fast"].includes(options.mode)) throw new Error("Usage: node scripts/verify-with-core.mjs core-pin | --core <dir> [--mode acceptance|fast] [--unpinned]");
       verify(options);
     }
   } catch (error) {

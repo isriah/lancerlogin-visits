@@ -2,6 +2,10 @@ name: Verify
 # Verifies this plugin commit composed into the LancerLogin Core commit pinned in .github/plugin-release.json.
 # Releases and nightly builds require a successful run of this workflow for their exact commit on main.
 #
+# A second, non-blocking entry composes the same commit into Core's main branch, so a change in Core that breaks this
+# plugin shows up before the pin is moved. It can fail while Core main is mid-change without blocking this plugin's
+# pull requests, releases or nightly builds; a red "verify against Core main" job is still a warning to act on.
+#
 # The pinned Core is the public isriah/LancerLogin repository and its official plugins are public, so no repository
 # secret is needed. Two optional secrets exist only for a Core pin that is private:
 #   LANCERLOGIN_CORE_TOKEN    Contents: read on a private Core repository. Used for the Core checkout when set.
@@ -30,8 +34,19 @@ jobs:
         with:
           args: -color
   verify:
+    # The pinned entry keeps the job name "verify" that releases and nightly builds require (scripts/plugin-release.mjs).
+    name: ${{ matrix.core == 'main' && 'verify against Core main' || 'verify' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    continue-on-error: ${{ matrix.core == 'main' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - core: pinned
+            flags: ""
+          - core: main
+            flags: --unpinned
     steps:
       - name: Check out this plugin commit
         uses: actions/checkout@v7
@@ -50,18 +65,18 @@ jobs:
       - name: Read the pinned Core commit
         id: core
         run: node plugin/scripts/verify-with-core.mjs core-pin >> "$GITHUB_OUTPUT"
-      - name: Check out the pinned LancerLogin Core commit ${{ steps.core.outputs.tag }}
+      - name: Check out LancerLogin Core ${{ matrix.core == 'main' && 'main' || format('{0} (pinned)', steps.core.outputs.tag) }}
         uses: actions/checkout@v7
         with:
           repository: ${{ steps.core.outputs.repository }}
-          ref: ${{ steps.core.outputs.commit }}
+          ref: ${{ matrix.core == 'main' && 'main' || steps.core.outputs.commit }}
           token: ${{ secrets.LANCERLOGIN_CORE_TOKEN || github.token }}
           path: core
           persist-credentials: false
       - name: Install Core dependencies
         working-directory: core
         run: npm ci --no-audit
-      - name: Compose this plugin commit into the pinned Core, then typecheck and build it
+      - name: Compose this plugin commit into that Core, then typecheck and build it
         env:
           LANCERLOGIN_PLUGIN_TOKEN: ${{ secrets.LANCERLOGIN_PLUGIN_TOKEN }}
-        run: node plugin/scripts/verify-with-core.mjs --core core --mode acceptance
+        run: node plugin/scripts/verify-with-core.mjs --core core --mode acceptance ${{ matrix.flags }}
