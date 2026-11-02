@@ -3,7 +3,7 @@
   "title": "LancerLogin Guest Visits plugin",
   "core": {
     "repository": "isriah/LancerLogin",
-    "tag": "v2.1.0-beta.3",
-    "commit": "0cb20e516d1d7651de5bb780d287d0ac25dd3304"
+    "tag": "v2.1.0-beta.4",
+    "commit": "43b45dbf720ecad5b4c9cbe14635ae12cad66105"
   }
 }

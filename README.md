@@ -77,7 +77,7 @@ When a guest enters a team number, Guest Visits looks it up in FIRST's FRC, FTC,
 
 | Plugin | LancerLogin Core | Module SDK | Module contract |
 | --- | --- | --- | --- |
-| Unreleased (after 0.3.0) | The first Core release with `lancerlogin.upgradeRequiresMigrations` (not published yet), with module SDK 1.2.0 | `^1.2.0` | 1 |
+| Unreleased (after 0.3.0) | `>=2.1.0-beta.4 <3.0.0`, with module SDK 1.2.0 (the first Core with `lancerlogin.upgradeRequiresMigrations`) | `^1.2.0` | 1 |
 | 0.3.x | `>=2.1.0-beta.3 <3.0.0`, with module SDK 1.2.0 (the first Core with `services.first`) | `^1.2.0` | 1 |
 | 0.1.x, 0.2.x | `>=2.0.0-beta.15 <3.0.0` (Modular 2.0.0-beta.15, the first Core with module SDK 1.1.0, and later 2.x releases) | `^1.1.0` | 1 |
 
@@ -108,7 +108,7 @@ Times are stored as instants and entered in the installation time zone. On days 
 
 ## Development
 
-Work needs Node 24 and, for anything beyond the unit tests, a LancerLogin Core checkout with module SDK 1.2.0 (Core `v2.1.0-beta.3` or later) and `npm ci` done there.
+Work needs Node 24 and, for anything beyond the unit tests, a LancerLogin Core checkout with module SDK 1.2.0 (Core `v2.1.0-beta.4` or later) and `npm ci` done there.
 
 - **`npm test`** runs without installed packages or Core: logic tests for every `src/shared` module (including daylight saving changes in America/New_York), SQL tests that apply the migration to an in-memory `node:sqlite` database (constraints, triggers, uniqueness, cascades, leases, cleanup order and a backup round trip), the Worker routes with synthetic email, Discord, Outreach and FIRST connection and a controlled clock, the dashboard's form and label helpers, the package check that the manifest, `package.json`, the storage declarations and `migrations/reviewed.json` agree, a check that authored text uses no em or en dashes, and the release policy tests.
 - **`npm run verify:core -- ../LancerLogin`** composes the committed plugin (commit first; it refuses a dirty tree) into a Core checkout with Core's official plugins, typechecks and builds the composed Worker and dashboard, then restores Core's generated files. Add `--mode fast` to compose and typecheck only.
@@ -120,7 +120,7 @@ Rules Core enforces when it composes the plugin: plugin code imports only `@lanc
 
 ## Continuous integration
 
-**Verify** (`.github/workflows/ci.yml`) runs on every push to `main`, every pull request and on demand. It runs `npm test`, checks out the LancerLogin Core commit pinned in `.github/plugin-release.json` from the public [isriah/LancerLogin](https://github.com/isriah/LancerLogin) repository, composes this plugin commit into it with Core's official plugins, and typechecks and builds the composed Worker and dashboard. The pin is currently Core `v2.1.0-beta.3`, recorded by its full commit SHA with the tag beside it for people; it must name a published Core release inside the supported range (see [Compatibility](#compatibility)).
+**Verify** (`.github/workflows/ci.yml`) runs on every push to `main`, every pull request and on demand. It runs `npm test`, checks out the LancerLogin Core commit pinned in `.github/plugin-release.json` from the public [isriah/LancerLogin](https://github.com/isriah/LancerLogin) repository, composes this plugin commit into it with Core's official plugins, and typechecks and builds the composed Worker and dashboard. The pin is currently Core `v2.1.0-beta.4`, recorded by its full commit SHA with the tag beside it for people; it must name a published Core release inside the supported range (see [Compatibility](#compatibility)).
 
 No repository secrets are needed. Two optional secrets are used only when set, for a Core pin that is private: `LANCERLOGIN_CORE_TOKEN` (Contents: read on that Core repository) and `LANCERLOGIN_PLUGIN_TOKEN` (read access to private plugin repositories that Core composes).
 
