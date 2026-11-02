@@ -4,7 +4,7 @@ All notable changes to the LancerLogin Guest Visits plugin. Versions follow Lanc
 
 Add a `## [X.Y.Z] - YYYY-MM-DD` entry above older entries for each stable or beta release. An entry not released yet is dated `Unreleased` until its release commit.
 
-## [0.3.0] - Unreleased
+## [0.3.0] - 2026-11-01
 
 Team lookup runs on LancerLogin's shared FIRST connection (`services.first`): FRC and FTC credentials are saved in **Settings > Integrations > FIRST**, and those saved in Guest Visits move there on their own the first time the new release runs. Team lookup also finds FLL Challenge and FLL Explore teams, with no credential, and those programs read **FLL Challenge** and **FLL Explore**. The booking form's **Headcount (approximate)** is required, and the Worker refuses a new booking without one; visits saved without one keep reading "Not given", and the **Require headcount** setting is gone. The guest calendar opens on this week rather than last week, and the guest page heading always reads **Book a team visit**. **Settings > Guest Visits > Team lookup** now shows which programs lookup works for and links to Settings > Integrations. Requires a Core with module SDK 1.2.0 (`lancerlogin.core` `>=2.1.0-beta.3 <3.0.0`, `@lancerlogin/module-sdk` `^1.2.0`). Adds migration 0004, which drops Guest Visits' FIRST caches. See [v0.3.0](docs/releases/v0.3.0.md).
 
