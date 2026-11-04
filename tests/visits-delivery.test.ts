@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { book, dashboardOrigin, FakeEmail, visitsHarness, withShopSeries, type Harness } from "./helpers/visits-harness.ts";
 import { emailCappedMessage } from "../src/api/visits-queries.ts";
+import { notificationsPerPass } from "../src/api/visits-delivery.ts";
 import { emptyWeekText } from "../src/shared/visits-summary.ts";
 
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
@@ -44,6 +45,21 @@ test("each address gets at most ten Guest Visits emails a day; the eleventh wait
   harness.clock.now = Date.parse("2026-10-31T12:00:00Z");
   await harness.job();
   assert.equal(harness.count("SELECT COUNT(*) AS n FROM visits_email_limits"), 0);
+});
+
+test("a job pass sends at most five notifications and the next pass sends the rest", async () => {
+  const harness = visitsHarness();
+  await withShopSeries(harness);
+  harness.email.readyValue = false;
+  for (let index = 0; index < 7; index += 1) await book(harness, { contactEmail: `guest-${index}@example.test`, headcount: index + 1 });
+  assert.equal(harness.email.sent.length, 0);
+  harness.email.readyValue = true;
+  assert.equal(notificationsPerPass, 5);
+  assert.equal((await harness.job()).delivered, 5);
+  assert.equal(harness.email.sent.length, 5);
+  assert.equal(harness.count("SELECT COUNT(*) AS n FROM visits_notifications WHERE status='pending'"), 2);
+  assert.equal((await harness.job()).delivered, 2);
+  assert.equal(new Set(harness.email.sent.map((message) => message.to)).size, 7);
 });
 
 test("Discord messages are queued only while Guest Visits messages are on and Discord is ready, and never mention anyone", async () => {

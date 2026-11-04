@@ -23,8 +23,13 @@ import { emailCappedMessage } from "./visits-queries.ts";
 import { readSettings } from "./visits-settings.ts";
 import { installationId, iso, rows, teamIdentity as identityOf, type BookingRow, type VisitsDeps, type VisitsOutreachClient } from "./visits-runtime.ts";
 
-/** Notifications one job pass sends at most. */
-export const notificationsPerPass = 20;
+/**
+ * Notifications one job pass sends at most. Every Core job shares one 5-minute cron invocation, which on the Workers Free
+ * plan allows 50 external requests and 50 D1 queries in all. A notification costs one provider request (up to 3 attempts
+ * on a short Discord rate limit) and 3 to 6 D1 queries, more when it records a visit in Outreach, so a pass of 5 stays
+ * near 25 queries. Rows left over stay pending, and the next pass sends them.
+ */
+export const notificationsPerPass = 5;
 /** How long a guest submission key keeps a repeated submission from booking twice. */
 export const submissionKeyRetentionMs = 7 * dayMs;
 /** Revoked manage links are forgotten after this long (expired ones as soon as the visit ends). */
