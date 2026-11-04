@@ -2,6 +2,7 @@
 // they cannot drift. Local dates are YYYY-MM-DD and local times HH:MM in the installation time zone; `*Ms` fields are the
 // same moments as epoch milliseconds. Errors are `{ error, field? }` with a 4xx status. Import-free apart from siblings.
 import type { Attention, FieldChange, PublicWindow, TeamIdentity, VisitProgram } from "./visits-booking.ts";
+import type { DiscordFailureReason } from "./visits-failures.ts";
 import type { WindowStatus } from "./visits-schedule.ts";
 
 /** Public routes: no sign-in, dashboard origin required for POST. */
@@ -81,6 +82,13 @@ export const adminVisitsRoutes = {
   teamMerge: (id: string) => `/admin/visits/teams/${encodeURIComponent(id)}/merge`,
   /** GET: `VisitsStatus`. */
   status: "/admin/visits/status",
+  /** POST: Admin only. Stop showing a failed Discord post; it is never sent. Answers `VisitsStatus`. */
+  notificationDismiss: (id: string) => `/admin/visits/notifications/${encodeURIComponent(id)}/dismiss`,
+  /**
+   * POST: Admin only. Try a failed Discord post again now, with fresh attempts, while `DiscordFailure.retryable`; 409
+   * otherwise. Answers `VisitsStatus`, which lists the post again if it failed again.
+   */
+  notificationRetry: (id: string) => `/admin/visits/notifications/${encodeURIComponent(id)}/retry`,
   /** GET: `VisitsSettings`. PUT `VisitsSettingsUpdate`. Admin only. */
   settings: "/admin/visits/settings",
   /** POST `{ to }`: Admin only. */
@@ -268,7 +276,38 @@ export type VisitsStatus = {
    */
   readonly outreach: { readonly available: boolean; readonly granted: boolean };
   readonly attentionCount: number;
+  /** Sends that failed and that nothing retries: `failures.emails + failures.outreach + failures.discordCount`. */
   readonly failedNotifications: number;
+  readonly failures: VisitsFailures;
+};
+/** What failed to send, for the workspace banners. */
+export type VisitsFailures = {
+  /** Visits whose latest email failed. Needs attention lists them until staff mark them handled. */
+  readonly emails: number;
+  /** Visits whose latest Outreach record failed. Needs attention lists them too. */
+  readonly outreach: number;
+  /** Every failed Discord post: booking posts and weekly summaries. */
+  readonly discordCount: number;
+  /** The newest failed Discord posts, at most five. */
+  readonly discord: readonly DiscordFailure[];
+  /** The channel ID in settings, for failures Discord gave no channel name for. Empty when none is set. */
+  readonly discordChannelId: string;
+};
+/**
+ * A Discord post that failed. Admins may dismiss it, or retry it while `retryable`; changing the Discord settings resolves
+ * it.
+ */
+export type DiscordFailure = {
+  readonly id: string;
+  readonly kind: "booked" | "changed" | "canceled" | "weekly-summary";
+  /** The weekly summary's report date, or null for a booking post. */
+  readonly summaryDate: string | null;
+  /** The visit a booking post is about: its team and local date. Null for the summary, or a visit no longer stored. */
+  readonly visit: { readonly team: TeamIdentity; readonly date: string } | null;
+  readonly reason: DiscordFailureReason;
+  readonly failedMs: number;
+  /** Whether Retry may post it: a booking post until its visit ends, a weekly summary within a day of its report time. */
+  readonly retryable: boolean;
 };
 export type VisitsSettings = {
   readonly revision: number;

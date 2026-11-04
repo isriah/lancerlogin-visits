@@ -61,18 +61,44 @@ export class FakeEmail {
 
 type DiscordPost = { path: string; body: { content: string; nonce: string; enforce_nonce: boolean; allowed_mentions: { parse: string[] }; flags: number } };
 
-/** Discord as the bot client sees it. A repeated nonce returns the earlier message instead of posting again. */
+/** Core's message for any Discord 403 on a channel request. Core throws it as its own error, without the status. */
+export const coreDiscordPermissionMessage = "Discord denied this request because the bot is missing a required permission. Confirm the bot can access the selected server and channel.";
+/** The synthetic server Core's bot connection was verified for. */
+export const discordGuildId = "900000000000000001";
+
+type DiscordFailure = { status?: number; code?: number; message?: string } | { permission: true };
+
+/**
+ * Discord as the bot client sees it through Core. A repeated nonce returns the earlier message instead of posting again.
+ * `failures` make the next posts fail: `{ permission: true }` as Core reports a 403 (its own error, no status), a status
+ * (with Discord's JSON code and message) as Core's DiscordResponseError. GET requests answer from `answers`, where an
+ * entry may be a failure; a path without an answer fails as a network error.
+ */
 export class FakeDiscord {
   readyValue = true;
   readonly posts: DiscordPost[] = [];
-  readonly failures: { status?: number }[] = [];
+  readonly failures: DiscordFailure[] = [];
+  readonly answers = new Map<string, unknown | DiscordFailure>();
+  readonly gets: string[] = [];
   readonly byNonce = new Map<string, string>();
   async ready() { return this.readyValue; }
+  static error(failure: DiscordFailure): Error {
+    if ("permission" in failure) return new CoreError(502, coreDiscordPermissionMessage);
+    return Object.assign(new Error(`Discord rejected the request (${failure.status ?? "network"})${failure.message ? `: ${failure.message}` : ""}`), { discordStatus: failure.status, discordCode: failure.code });
+  }
   async client() {
     return {
+      guildId: discordGuildId,
       request: async <T>(path: string, init: RequestInit): Promise<{ body: T }> => {
+        if (init.method === "GET") {
+          this.gets.push(path);
+          if (!this.answers.has(path)) throw new Error("The connection closed before Discord answered");
+          const answer = this.answers.get(path) as { permission?: true; status?: number };
+          if (answer && (answer.permission || typeof answer.status === "number")) throw FakeDiscord.error(answer as DiscordFailure);
+          return { body: structuredClone(answer) as T };
+        }
         const failure = this.failures.shift();
-        if (failure) throw Object.assign(new Error(`Discord rejected the request (${failure.status ?? "network"})`), { discordStatus: failure.status });
+        if (failure) throw FakeDiscord.error(failure);
         const body = JSON.parse(String(init.body)) as DiscordPost["body"];
         const earlier = this.byNonce.get(body.nonce);
         if (earlier && body.enforce_nonce) return { body: { id: earlier } as T };

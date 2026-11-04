@@ -8,6 +8,7 @@ import {
   bookVisit, listTeams, lookupTeam, manageCancel, manageShow, manageUpdate, mergeTeam, publicCalendar, recordOutreach, staffCancel, staffEdit, staffHandled, staffRemove,
   staffRestore, staffResend, updateTeam,
 } from "./visits-bookings.ts";
+import { dismissNotification, retryNotification } from "./visits-failures.ts";
 import { bookingScopes, listStaffBookings, staffBookingDetail, type BookingScope } from "./visits-queries.ts";
 import { readSettings, sendTestEmail, setupStatus, updateSettings, visitsSettings, visitsStatus } from "./visits-settings.ts";
 import { firstLookupStatus, searchTeams } from "./visits-team-search.ts";
@@ -124,6 +125,8 @@ function adminRoute(db: VisitsRouteContext["db"], deps: VisitsDeps, path: string
     case "bookings/handled": return { roles: staff, methods: { POST: () => staffHandled(db, deps, id) } };
     case "teams/": return { roles: staff, methods: { PUT: ({ body }) => updateTeam(db, deps, id, body) } };
     case "teams/merge": return { roles: staff, methods: { POST: ({ userId, body }) => mergeTeam(db, deps, id, userId, body) } };
+    case "notifications/dismiss": return { roles: admin, methods: { POST: () => dismissNotification(db, deps, id) } };
+    case "notifications/retry": return { roles: admin, methods: { POST: () => retryNotification(db, deps, id) } };
     default: return undefined;
   }
 }

@@ -1,14 +1,16 @@
 // Guest Visits settings (Admin only), the test email that completes the email setup step, the workspace status and the
 // setup checklist's predicates.
 import type { D1Database } from "@lancerlogin/module-sdk/api";
-import type { VisitsSettings, VisitsSetupStatus, VisitsStatus } from "../shared/visits-api.ts";
+import type { VisitsFailures, VisitsSettings, VisitsSetupStatus, VisitsStatus } from "../shared/visits-api.ts";
 import { parseEmail } from "../shared/visits-booking.ts";
 import { dailyEmailCap, emailAddressHash, emailLimitDay, releaseEmailSql, reserveEmailSql } from "../shared/visits-limits.ts";
+import { resolvedBySettingsNote } from "../shared/visits-failures.ts";
+import { resolveDiscordFailuresSql } from "../shared/visits-notifications.ts";
 import { escapeHtml, maximumHostNameLength, maximumIntroTextLength } from "../shared/visits-text.ts";
 import { defaultSettingsSql } from "../shared/visits-storage.ts";
 import { isLocalTime, multiLine, singleLine } from "../shared/visits-time.ts";
 import { outreachAccess } from "./visits-outreach.ts";
-import { attentionCountSql } from "./visits-queries.ts";
+import { attentionCountSql, discordFailures, failedBookingSendsSql } from "./visits-queries.ts";
 import { installationId, iso, objectBody, ok, onlyFields, revisionOf, stale, VisitsError, type RouteResult, type SettingsRow, type VisitsDeps } from "./visits-runtime.ts";
 
 const settingsColumns = "host_name,intro_text,reply_to,test_email_sent_at,discord_enabled,discord_channel_id,weekly_summary_enabled,weekly_summary_weekday,weekly_summary_time,weekly_summary_since_ms,headcount_required,revision";
@@ -85,7 +87,8 @@ export function parseSettingsUpdate(value: unknown, current: VisitsSettings): Om
 
 /**
  * Save settings. Turning the summary or Discord messages on, or moving the summary to another day or time, starts the
- * schedule now, so no past week's summary posts.
+ * schedule now, so no past week's summary posts. Turning Discord messages on or off, or choosing another channel,
+ * resolves failed Discord posts: the change is the fix (or the decision not to post), and an old message never posts late.
  */
 export async function updateSettings(db: D1Database, deps: VisitsDeps, value: unknown): Promise<RouteResult> {
   const now = deps.now();
@@ -98,6 +101,9 @@ export async function updateSettings(db: D1Database, deps: VisitsDeps, value: un
     .bind(next.hostName, next.introText, next.replyTo, next.discordEnabled ? 1 : 0, next.discordChannelId || null, next.weeklySummaryEnabled ? 1 : 0, next.weeklySummaryWeekday, next.weeklySummaryTime,
       restart ? 1 : 0, now, next.headcountRequired ? 1 : 0, iso(now), installationId, next.revision).run();
   if (result.meta?.changes !== 1) throw stale("Guest Visits settings");
+  if (next.discordEnabled !== current.discordEnabled || next.discordChannelId !== current.discordChannelId) {
+    await db.prepare(resolveDiscordFailuresSql).bind(resolvedBySettingsNote, iso(now), installationId).run();
+  }
   return ok(visitsSettings(await readSettings(db, now)));
 }
 
@@ -142,16 +148,20 @@ export async function sendTestEmail(db: D1Database, deps: VisitsDeps, value: unk
  */
 export async function visitsStatus(db: D1Database, deps: VisitsDeps): Promise<VisitsStatus> {
   const now = deps.now();
-  const [settings, timeZone, emailReady, discordReady, attention, failed] = await Promise.all([
+  const [settings, timeZone, emailReady, discordReady, attention, bookingSends] = await Promise.all([
     readSettings(db, now), deps.timeZone(), deps.email.ready(), deps.discord.ready(),
     db.prepare(attentionCountSql).bind(installationId).first<{ count: number }>(),
-    db.prepare("SELECT COUNT(*) AS count FROM visits_notifications WHERE installation_id=? AND status='failed'").bind(installationId).first<{ count: number }>(),
+    db.prepare(failedBookingSendsSql).bind(installationId).first<{ emails: number; outreach: number }>(),
   ]);
-  const outreach = await outreachAccess(db, deps, now);
+  const [outreach, discord] = await Promise.all([outreachAccess(db, deps, now), discordFailures(db, deps.civil, timeZone, now)]);
+  const failures: VisitsFailures = {
+    emails: Number(bookingSends?.emails ?? 0), outreach: Number(bookingSends?.outreach ?? 0),
+    discordCount: discord.count, discord: discord.failures, discordChannelId: settings.discord_channel_id ?? "",
+  };
   return {
     timeZone, guestPagePath: "/visit", email: { ready: emailReady }, discord: { ready: discordReady, enabled: settings.discord_enabled === 1 },
     outreach: { available: Boolean(outreach.client) || outreach.granted, granted: outreach.granted },
-    attentionCount: Number(attention?.count ?? 0), failedNotifications: Number(failed?.count ?? 0),
+    attentionCount: Number(attention?.count ?? 0), failedNotifications: failures.emails + failures.outreach + failures.discordCount, failures,
   };
 }
 
