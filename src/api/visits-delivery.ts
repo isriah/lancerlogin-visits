@@ -10,6 +10,7 @@ import {
   afterFailedAttempt, claimNotificationSql, discordNonce, emailIdempotencyKey, finishNotificationSql, notificationLeaseMs, recoverExpiredLeasesSql,
   type NotificationChannel, type NotificationKind,
 } from "../shared/visits-notifications.ts";
+import { classifyDiscordError, discordThreadTypes, encodeDiscordFailure, missingDiscordPermissions, type DiscordPermission } from "../shared/visits-failures.ts";
 import { formatWeeklySummary, parseSummaryPayload, reportTimes, selectSummaryVisits, summaryDisposition, weeklySummaryDecision, type SummaryDecision, type SummaryVisit } from "../shared/visits-summary.ts";
 import {
   cancellationEmail, confirmationEmail, discordBookedMessage, discordCanceledMessage, discordChangedMessage, discordMessageBody, hostNameText, updateEmail,
@@ -198,13 +199,60 @@ async function deliverDiscord(db: D1Database, deps: VisitsDeps, row: Notificatio
     content = row.kind === "changed" ? discordChangedMessage(message, parsePayload(row.payload_json).changes ?? [])
       : row.kind === "canceled" ? discordCanceledMessage(message) : discordBookedMessage(message);
   }
+  const client = await deps.discord.client();
   try {
-    const client = await deps.discord.client();
     const response = await client.request<{ id?: unknown }>(`/channels/${encodeURIComponent(settings.discord_channel_id)}/messages`, { method: "POST", body: JSON.stringify(discordMessageBody(content, discordNonce(row.id))) });
     return { status: "delivered", externalId: typeof response.body?.id === "string" ? response.body.id : null };
   } catch (error) {
     const status = deps.discord.providerStatus(error);
+    const kind = classifyDiscordError({ status, code: discordCodeOf(error), message: errorText(error) });
+    // Discord refuses these until someone changes the bot's permissions or the channel, so they fail at once.
+    if (kind === "missing-permissions") return { status: "retry", error: encodeDiscordFailure({ code: kind, ...await diagnoseChannel(client, settings.discord_channel_id) }), permanent: true };
+    if (kind === "unknown-channel") return { status: "retry", error: encodeDiscordFailure({ code: kind }), permanent: true };
     return { status: "retry", error: errorText(error), permanent: status !== undefined && status >= 400 && status < 500 && status !== 429 };
+  }
+}
+
+/** Discord's JSON error code, which Core's Discord errors carry as `discordCode` although the SDK does not promise it. */
+function discordCodeOf(error: unknown): number | undefined {
+  const code = error instanceof Error ? (error as Error & { readonly discordCode?: unknown }).discordCode : undefined;
+  return typeof code === "number" ? code : undefined;
+}
+
+type DiscordClient = Awaited<ReturnType<VisitsDeps["discord"]["client"]>>;
+type DiscordChannel = { name?: unknown; type?: unknown; guild_id?: unknown; parent_id?: unknown; permission_overwrites?: unknown };
+
+/**
+ * After Discord refused a post: which permissions the bot lacks in the channel, and its name, read from Discord with the
+ * same bot. A channel the bot cannot read is missing View Channel. Anything Discord does not answer leaves the
+ * permissions unknown (empty), so the workspace only says which ones to check.
+ */
+async function diagnoseChannel(client: DiscordClient, channelId: string): Promise<{ readonly permissions: DiscordPermission[]; readonly channelName: string | null }> {
+  const get = <T,>(path: string) => client.request<T>(path, { method: "GET" }).then((response) => response.body);
+  let channel: DiscordChannel;
+  try { channel = await get<DiscordChannel>(`/channels/${encodeURIComponent(channelId)}`); } catch (error) {
+    return { permissions: classifyDiscordError({ status: undefined, code: discordCodeOf(error), message: errorText(error) }) === "missing-permissions" ? ["view-channel"] : [], channelName: null };
+  }
+  const channelName = typeof channel.name === "string" && channel.name ? channel.name : null;
+  try {
+    const guildId = String(channel.guild_id ?? client.guildId ?? "");
+    const channelType = Number(channel.type);
+    const parent = discordThreadTypes.includes(channelType) && typeof channel.parent_id === "string" ? await get<DiscordChannel>(`/channels/${encodeURIComponent(channel.parent_id)}`) : channel;
+    const bot = await get<{ id?: unknown }>("/users/@me");
+    if (!guildId || typeof bot.id !== "string") return { permissions: [], channelName };
+    const [member, roles] = await Promise.all([
+      get<{ roles?: unknown }>(`/guilds/${encodeURIComponent(guildId)}/members/${encodeURIComponent(bot.id)}`),
+      get<unknown>(`/guilds/${encodeURIComponent(guildId)}/roles`),
+    ]);
+    if (!Array.isArray(roles)) return { permissions: [], channelName };
+    const permissions = missingDiscordPermissions({
+      guildId, botId: bot.id, botRoleIds: Array.isArray(member.roles) ? member.roles.filter((id): id is string => typeof id === "string") : [],
+      roles: roles.filter((role): role is { id: string; permissions?: unknown } => Boolean(role) && typeof (role as { id?: unknown }).id === "string"),
+      channelType, overwrites: Array.isArray(parent.permission_overwrites) ? parent.permission_overwrites : [],
+    });
+    return { permissions, channelName };
+  } catch {
+    return { permissions: [], channelName };
   }
 }
 

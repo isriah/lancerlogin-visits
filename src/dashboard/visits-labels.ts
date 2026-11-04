@@ -1,8 +1,11 @@
-// Plain-language labels for the staff workspace: email and Outreach states, why a visit needs attention, change history,
-// guest team lists and whether team lookup works. Plain functions over src/shared, so `npm test` covers them without React.
+// Plain-language labels for the staff workspace: email and Outreach states, why a visit needs attention, what failed to
+// send, change history, guest team lists and whether team lookup works. Plain functions over src/shared, so `npm test`
+// covers them without React.
 import type { AttentionReason, FieldChange, TeamIdentity } from "../shared/visits-booking.ts";
 import { programLabels, programShortLabels, visitPrograms, type VisitProgram } from "../shared/visits-booking.ts";
-import type { BookingHistoryEntry, EmailState, FirstCredentialProgram, FirstLookupStatus, OutreachRecordResult, StaffBooking, StaffTeam } from "../shared/visits-api.ts";
+import type { BookingHistoryEntry, DiscordFailure, EmailState, FirstCredentialProgram, FirstLookupStatus, OutreachRecordResult, StaffBooking, StaffTeam, VisitsFailures } from "../shared/visits-api.ts";
+import { discordPermissionLabels } from "../shared/visits-failures.ts";
+import { formatShortDate } from "../shared/visits-time.ts";
 import { firstApiPrograms, firstCredentialPrograms } from "../shared/visits-team-search.ts";
 import { formatInstant, headcountText } from "./visits-local.ts";
 
@@ -224,4 +227,67 @@ export function firstLookupNotices(status: FirstLookupStatus): { readonly lookup
       ? { tone: "success", label: `On. Guests' ${joinPrograms(firstApiPrograms.map(label))} team numbers are looked up.` }
       : { tone: "neutral", label: `On for ${joinPrograms(on.map(label))}. ${unavailable}` };
   return { lookup };
+}
+
+/** Text with links in it: a string, or a link to the Discord settings or to Needs attention. */
+export type BannerPart = string | { readonly link: "discord-settings" | "attention"; readonly label: string };
+const discordSettingsLink: BannerPart = { link: "discord-settings", label: "Settings > Guest Visits > Discord" };
+const attentionLink: BannerPart = { link: "attention", label: "Needs attention" };
+/** A banner's text as plain words, for tests and screen-reader labels. */
+export const bannerText = (parts: readonly BannerPart[]) => parts.map((part) => typeof part === "string" ? part : part.label).join("");
+
+const listText = (items: readonly string[]) => items.length < 3 ? items.join(" and ") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+const discordPostSubject: Readonly<Record<Exclude<DiscordFailure["kind"], "weekly-summary">, string>> = { booked: "a new visit", changed: "a changed visit", canceled: "a canceled visit" };
+
+/** What failed: "The weekly summary for Sunday, November 1" or "The Discord post about a new visit by FRC 321 RoboLancers on Monday, November 2". */
+export function discordFailureSubject(failure: Pick<DiscordFailure, "kind" | "summaryDate" | "visit">): string {
+  if (failure.kind === "weekly-summary") return failure.summaryDate ? `The weekly summary for ${formatShortDate(failure.summaryDate)}` : "The weekly summary";
+  const subject = `The Discord post about ${discordPostSubject[failure.kind]}`;
+  return failure.visit ? `${subject} by ${teamText(failure.visit.team)} on ${formatShortDate(failure.visit.date)}` : subject;
+}
+
+/**
+ * One failed Discord post's banner: what failed, why in plain words, and where to fix it. Permissions are named only when
+ * Guest Visits worked them out from Discord; otherwise the banner says which ones to check. Admins are told to retry
+ * (or, for a message out of date, to dismiss); Operators are asked to tell an Admin.
+ */
+export function discordFailureBanner(failure: DiscordFailure, context: { readonly channelId: string; readonly admin: boolean }): BannerPart[] {
+  const { reason } = failure;
+  const channel = reason.code === "missing-permissions" && reason.channelName ? `#${reason.channelName}` : context.channelId ? `channel ${context.channelId}` : "the Guest Visits channel";
+  const parts: BannerPart[] = [`${discordFailureSubject(failure)} wasn't posted to Discord: `];
+  if (reason.code === "unknown-channel") {
+    parts.push(`Discord can't find ${channel}. It may have been deleted, or the ID is wrong. `, context.admin ? "Choose a channel in " : "An Admin can choose one in ", discordSettingsLink, ".");
+    return parts;
+  }
+  const outOfDate = ". It's out of date now, so dismiss it.";
+  if (reason.code === "missing-permissions") {
+    const permissions = reason.permissions.map((permission) => discordPermissionLabels[permission]);
+    parts.push(permissions.length
+      ? `the bot is missing ${listText(permissions)} in ${channel}. Give it ${permissions.length === 1 ? "that permission" : "those permissions"} in Discord`
+      : `Discord says the bot is missing a permission in ${channel}. Check that it has View Channel and Send Messages there`);
+    parts.push(!context.admin ? ". Ask an Admin to fix this." : failure.retryable ? ", then retry." : outOfDate);
+    return parts;
+  }
+  const message = reason.message.replace(/[.!?]$/, "");
+  parts.push(message, !context.admin ? ". Ask an Admin to check it." : failure.retryable ? ". Retry, or dismiss it." : outOfDate);
+  return parts;
+}
+
+/** Banners for failed booking emails and Outreach records, which Needs attention lists. */
+export function bookingFailureBanners(failures: Pick<VisitsFailures, "emails" | "outreach">): { readonly key: string; readonly parts: BannerPart[] }[] {
+  const banners: { key: string; parts: BannerPart[] }[] = [];
+  if (failures.emails) {
+    banners.push({ key: "failed-emails", parts: failures.emails === 1 ? ["A booking email failed to send. Its visit is in ", attentionLink, "."] : [`${failures.emails} booking emails failed to send. Their visits are in `, attentionLink, "."] });
+  }
+  if (failures.outreach) {
+    banners.push({ key: "failed-outreach", parts: failures.outreach === 1 ? ["A visit couldn't be recorded in Outreach. It's in ", attentionLink, "."] : [`${failures.outreach} visits couldn't be recorded in Outreach. They're in `, attentionLink, "."] });
+  }
+  return banners;
+}
+
+/** The note under the listed Discord failures when more failed than are shown. */
+export function moreDiscordFailuresText(failures: Pick<VisitsFailures, "discordCount" | "discord">): string | null {
+  const more = failures.discordCount - failures.discord.length;
+  if (more <= 0) return null;
+  return `${more} older failed Discord ${more === 1 ? "post isn't" : "posts aren't"} shown. Changing the Discord channel in settings resolves them all.`;
 }

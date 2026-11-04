@@ -22,7 +22,9 @@ export type VisitsEmailService = {
 /** Core's Discord bot connection. Structurally the SDK's `services.discord`. */
 export type VisitsDiscordService = {
   ready(): Promise<boolean>;
-  client(): Promise<{ request<T = Record<string, unknown>>(path: string, init: RequestInit): Promise<{ readonly body: T }> }>;
+  /** `guildId` is the server Core's bot connection was verified for. */
+  client(): Promise<{ readonly guildId?: string; request<T = Record<string, unknown>>(path: string, init: RequestInit): Promise<{ readonly body: T }> }>;
+  /** The HTTP status of a refusal Core passes on. Core reports a 403 as its own error, without a status. */
   providerStatus(error: unknown): number | undefined;
 };
 

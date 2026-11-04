@@ -1,10 +1,12 @@
-// Reads the workspace shares: staff booking rows with their team, window, email and Outreach state, and what Needs
-// attention lists.
+// Reads the workspace shares: staff booking rows with their team, window, email and Outreach state, what Needs
+// attention lists, and the failed sends the workspace banners name.
 import type { D1Database } from "@lancerlogin/module-sdk/api";
-import type { BookingHistoryEntry, EmailState, StaffBooking, StaffBookingDetail } from "../shared/visits-api.ts";
+import type { BookingHistoryEntry, DiscordFailure, EmailState, StaffBooking, StaffBookingDetail } from "../shared/visits-api.ts";
 import type { FieldChange, VisitProgram } from "../shared/visits-booking.ts";
+import { canRetryDiscordPost, decodeDiscordFailure, type DiscordFailureReason } from "../shared/visits-failures.ts";
 import { outreachState } from "../shared/visits-outreach.ts";
-import type { CivilTime } from "../shared/visits-time.ts";
+import { parseSummaryPayload } from "../shared/visits-summary.ts";
+import { localMoment, type CivilTime } from "../shared/visits-time.ts";
 import { attentionOf, bookingColumns, installationId, localTimes, rows, VisitsError, type BookingRow } from "./visits-runtime.ts";
 
 /** `last_error` of an email that waits because its address reached the daily cap. Needs attention lists these. */
@@ -25,6 +27,48 @@ const outreachStateColumns = [["status", "n.status"], ["error", "n.last_error"],
 const attentionPredicate = `(attention='needed' OR email_status IN ('failed','paused') OR (email_status='pending' AND email_error='${emailCappedMessage}') OR outreach_status IN ('failed','paused'))`;
 
 export const attentionCountSql = `SELECT COUNT(*) AS count FROM (SELECT b.attention,${emailStateColumns},${outreachStateColumns} FROM visits_bookings b WHERE b.installation_id=? AND b.removed=0) WHERE ${attentionPredicate}`;
+
+/**
+ * Visits whose latest email, and whose latest Outreach record, failed: the failures Needs attention lists. One handled by
+ * staff, or replaced by a newer send, no longer counts. Binds the installation ID.
+ */
+export const failedBookingSendsSql = `SELECT COALESCE(SUM(email_status='failed'),0) AS emails,COALESCE(SUM(outreach_status='failed'),0) AS outreach FROM (SELECT ${emailStateColumns},${outreachStateColumns} FROM visits_bookings b WHERE b.installation_id=? AND b.removed=0)`;
+
+export type DiscordFailureRow = {
+  id: string; kind: DiscordFailure["kind"]; summary_date: string | null; payload_json: string; last_error: string | null; updated_at: string;
+  arrival_ms: number | null; departure_ms: number | null; number: string | null; name: string | null; program: VisitProgram | null;
+};
+
+/**
+ * Whether Retry may post a failed Discord message again. An unknown channel stays wrong until the settings change, which
+ * resolves the post anyway, so only a refused or other failure is retried.
+ */
+export function retryableFailure(row: Pick<DiscordFailureRow, "kind" | "departure_ms" | "payload_json">, reason: DiscordFailureReason, now: number): boolean {
+  if (reason.code === "unknown-channel") return false;
+  return canRetryDiscordPost({ kind: row.kind, now, departureMs: row.departure_ms, summary: row.kind === "weekly-summary" ? parseSummaryPayload(row.payload_json) : null });
+}
+
+/** Failed Discord posts, newest first, at most `limit`, and how many there are. */
+export async function discordFailures(db: D1Database, civil: CivilTime, timeZone: string, now: number, limit = 5): Promise<{ readonly count: number; readonly failures: DiscordFailure[] }> {
+  const [count, failed] = await Promise.all([
+    db.prepare("SELECT COUNT(*) AS count FROM visits_notifications WHERE installation_id=? AND channel='discord' AND status='failed'").bind(installationId).first<{ count: number }>(),
+    rows<DiscordFailureRow>(db.prepare(`SELECT n.id,n.kind,n.summary_date,n.payload_json,n.last_error,n.updated_at,b.arrival_ms,b.departure_ms,t.number,t.name,t.program FROM visits_notifications n
+      LEFT JOIN visits_bookings b ON b.installation_id=n.installation_id AND b.id=n.booking_id LEFT JOIN visits_teams t ON t.installation_id=b.installation_id AND t.id=b.team_id
+      WHERE n.installation_id=? AND n.channel='discord' AND n.status='failed' ORDER BY n.updated_at DESC,n.rowid DESC LIMIT ?`).bind(installationId, limit)),
+  ]);
+  return {
+    count: Number(count?.count ?? 0),
+    failures: failed.map((row): DiscordFailure => {
+      const reason = decodeDiscordFailure(row.last_error);
+      return {
+        id: row.id, kind: row.kind, summaryDate: row.summary_date,
+        visit: row.arrival_ms !== null && row.number !== null && row.name !== null && row.program !== null
+          ? { team: { number: row.number, name: row.name, program: row.program }, date: localMoment(civil, timeZone, row.arrival_ms).date } : null,
+        reason, failedMs: Date.parse(row.updated_at), retryable: retryableFailure(row, reason, now),
+      };
+    }),
+  };
+}
 
 export type StaffBookingRow = BookingRow & {
   team_number: string; team_name: string; team_program: VisitProgram; window_title: string; email_status: string | null; email_error: string | null;

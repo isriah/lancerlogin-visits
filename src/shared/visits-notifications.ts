@@ -8,8 +8,10 @@ export const notificationKinds = ["booked", "changed", "canceled", "resend", "we
 export type NotificationKind = (typeof notificationKinds)[number];
 /**
  * pending: waiting for its next attempt. sending: leased by a sender. delivered: done. failed: gave up after the last
- * attempt or a permanent error; Needs attention lists it. paused: stopped by a restore until staff review it. skipped: a
- * weekly summary that was not sent before the following report time.
+ * attempt or a permanent error, and nothing retries it; Needs attention lists failed emails and Outreach records, and the
+ * workspace banner failed Discord posts. paused: stopped by a restore until staff review it. skipped: not sent and no
+ * longer due, such as a weekly summary not sent before the following report time, a failed email staff handled, or a
+ * failed Discord post dismissed or resolved by a settings change.
  */
 export const notificationStatuses = ["pending", "sending", "delivered", "failed", "paused", "skipped"] as const;
 export type NotificationStatus = (typeof notificationStatuses)[number];
@@ -76,3 +78,9 @@ export const finishNotificationSql = "UPDATE visits_notifications SET status=?,n
  * nonce, Outreach ensure operations).
  */
 export const recoverExpiredLeasesSql = "UPDATE visits_notifications SET status='pending',next_attempt_ms=lease_expires_ms,lease_token=NULL,lease_expires_ms=NULL,updated_at=? WHERE installation_id=? AND status='sending' AND lease_expires_ms<=?";
+
+/**
+ * Resolve failed Discord posts after the Discord settings changed, so the workspace stops listing them; they are never
+ * sent, since a days-old message would post late. Binds the note, updated_at and installation ID.
+ */
+export const resolveDiscordFailuresSql = "UPDATE visits_notifications SET status='skipped',last_error=?,updated_at=? WHERE installation_id=? AND channel='discord' AND status='failed'";
