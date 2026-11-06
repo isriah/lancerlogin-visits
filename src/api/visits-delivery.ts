@@ -3,6 +3,8 @@
 // visits.notifications job sends whatever is still due, records visits in Outreach, retries failures, posts the weekly
 // summary and forgets expired operational rows. A row being sent holds a lease, and every provider call is idempotent
 // (the email idempotency key and the Discord nonce are fixed per notification, and Outreach's operations find or create).
+// On a Core whose scheduler runs jobs in steps (module SDK 1.6.0), the job does one small step per slice instead of a
+// full pass; see processVisitsNotificationStep.
 import type { D1Database, D1Statement } from "@lancerlogin/module-sdk/api";
 import type { FieldChange, VisitProgram } from "../shared/visits-booking.ts";
 import { dailyEmailCap, emailAddressHash, emailLimitDay, nextEmailDayStartMs, purgeEmailLimitsSql, releaseEmailSql, reserveEmailSql } from "../shared/visits-limits.ts";
@@ -18,10 +20,10 @@ import {
 } from "../shared/visits-text.ts";
 import { generateManageToken, hashManageToken, manageLink } from "../shared/visits-tokens.ts";
 import { addDays, dayMs, localMoment } from "../shared/visits-time.ts";
-import { outreachAccess, queueOutreachStatement, recordInOutreach } from "./visits-outreach.ts";
+import { linkOutreachTeamStep, outreachAccess, queueOutreachStatement, recordInOutreach } from "./visits-outreach.ts";
 import { emailCappedMessage } from "./visits-queries.ts";
-import { readSettings } from "./visits-settings.ts";
-import { installationId, iso, rows, teamIdentity as identityOf, type BookingRow, type VisitsDeps, type VisitsOutreachClient } from "./visits-runtime.ts";
+import { readSettings, settingsStatement } from "./visits-settings.ts";
+import { installationId, iso, rows, teamIdentity as identityOf, type BookingRow, type SettingsRow, type VisitsDeps, type VisitsOutreachClient } from "./visits-runtime.ts";
 
 /**
  * Notifications one job pass sends at most. Every Core job shares one 5-minute cron invocation, which on the Workers Free
@@ -100,13 +102,27 @@ async function finish(db: D1Database, row: NotificationRow, lease: string, outco
   return outcome.status;
 }
 
-type MessageBooking = BookingRow & { number: string; name: string; program: VisitProgram; window_title: string };
+type MessageBooking = BookingRow & { number: string; name: string; program: VisitProgram; outreach_team_id: string | null; window_title: string };
 
-async function messageBooking(db: D1Database, bookingId: string | null): Promise<MessageBooking | null> {
-  if (!bookingId) return null;
-  return db.prepare(`SELECT b.*,t.number,t.name,t.program,w.title AS window_title FROM visits_bookings b
+/** A notification's booking with its team and window. Binds installation ID; callers add the booking condition. */
+const messageBookingSql = `SELECT b.*,t.number,t.name,t.program,t.outreach_team_id,w.title AS window_title FROM visits_bookings b
     JOIN visits_teams t ON t.installation_id=b.installation_id AND t.id=b.team_id JOIN visits_windows w ON w.installation_id=b.installation_id AND w.id=b.window_id
-    WHERE b.installation_id=? AND b.id=?`).bind(installationId, bookingId).first<MessageBooking>();
+    WHERE b.installation_id=?`;
+const messageBookingStatement = (db: D1Database, bookingId: string) => db.prepare(`${messageBookingSql} AND b.id=?`).bind(installationId, bookingId);
+
+type Loaded = { readonly settings: SettingsRow; readonly booking: MessageBooking | null };
+
+/**
+ * The settings and a notification's booking, read in one D1 batch: on the Workers Free plan each D1 call costs a
+ * scheduler slice about 0.45 ms of its 10 ms CPU, so a notification reads them together.
+ */
+async function settingsAndBooking(db: D1Database, bookingId: string | null, now: number): Promise<Loaded> {
+  if (!bookingId) return { settings: await readSettings(db, now), booking: null };
+  const [settings, booking] = await db.batch([settingsStatement(db), messageBookingStatement(db, bookingId)]);
+  return {
+    settings: (settings?.results?.[0] as SettingsRow | undefined) ?? await readSettings(db, now),
+    booking: (booking?.results?.[0] as MessageBooking | undefined) ?? null,
+  };
 }
 
 function parsePayload(json: string): BookingNotificationPayload {
@@ -138,25 +154,31 @@ async function details(deps: VisitsDeps, booking: MessageBooking, hostName: stri
  * the send (a link in a sent email always works) and removed again when Resend certainly did not send it. The recipient's
  * daily cap is reserved first and released only when Resend refused the request.
  */
-async function deliverEmail(db: D1Database, deps: VisitsDeps, row: NotificationRow, now: number): Promise<Outcome> {
-  const booking = await messageBooking(db, row.booking_id);
+async function deliverEmail(db: D1Database, deps: VisitsDeps, row: NotificationRow, now: number, loaded?: Loaded): Promise<Outcome> {
+  const { settings, booking } = loaded ?? await settingsAndBooking(db, row.booking_id, now);
   const gone = superseded(row.kind, booking);
   if (gone || !booking) return { status: "skipped", note: gone ?? "This visit no longer exists" };
   if (booking.departure_ms <= now) return { status: "skipped", note: "The visit ended before this email could be sent" };
   const payload = parsePayload(row.payload_json);
   if (!payload.origin) return { status: "retry", error: "The dashboard address is unknown, so no manage link can be sent", permanent: true };
+  const token = generateManageToken();
+  let link: string;
+  try { link = manageLink(payload.origin, token); } catch (error) { return { status: "retry", error: errorText(error), permanent: true }; }
   const timeZone = await deps.timeZone();
-  const settings = await readSettings(db, now);
   const addressHash = await emailAddressHash(booking.contact_email);
   const day = emailLimitDay(deps.civil, timeZone, now);
-  if (!await db.prepare(reserveEmailSql).bind(installationId, addressHash, day, dailyEmailCap).first()) return { status: "capped", nextAttemptMs: nextEmailDayStartMs(deps.civil, timeZone, now) };
-  const release = () => db.prepare(releaseEmailSql).bind(installationId, addressHash, day).run();
-  const token = generateManageToken();
   const tokenHash = await hashManageToken(token);
-  let link: string;
-  try { link = manageLink(payload.origin, token); } catch (error) { await release(); return { status: "retry", error: errorText(error), permanent: true }; }
-  await db.prepare("INSERT INTO visits_manage_tokens(installation_id,token_hash,booking_id,issued_ms,expires_ms) VALUES(?,?,?,?,?)").bind(installationId, tokenHash, booking.id, now, booking.departure_ms).run();
+  const release = () => db.prepare(releaseEmailSql).bind(installationId, addressHash, day).run();
   const forget = () => db.prepare("DELETE FROM visits_manage_tokens WHERE installation_id=? AND token_hash=?").bind(installationId, tokenHash).run();
+  // The reservation and the link's hash in one batch; a recipient at the cap gets the hash removed again (rare).
+  const [reserved] = await db.batch([
+    db.prepare(reserveEmailSql).bind(installationId, addressHash, day, dailyEmailCap),
+    db.prepare("INSERT INTO visits_manage_tokens(installation_id,token_hash,booking_id,issued_ms,expires_ms) VALUES(?,?,?,?,?)").bind(installationId, tokenHash, booking.id, now, booking.departure_ms),
+  ]);
+  if (!reserved?.results?.length) {
+    await forget();
+    return { status: "capped", nextAttemptMs: nextEmailDayStartMs(deps.civil, timeZone, now) };
+  }
   const message = await details(deps, booking, settings.host_name);
   const content: EmailContent = row.kind === "changed" ? updateEmail(message, link, payload.changes ?? [])
     : row.kind === "canceled" ? cancellationEmail(message, link) : confirmationEmail(message, link);
@@ -187,8 +209,8 @@ async function summaryVisits(db: D1Database, reportMs: number, nextReportMs: num
 }
 
 /** Post one Discord message: a booking change or the weekly summary. Nothing is mentioned and a retry cannot post twice. */
-async function deliverDiscord(db: D1Database, deps: VisitsDeps, row: NotificationRow, now: number): Promise<Outcome> {
-  const settings = await readSettings(db, now);
+async function deliverDiscord(db: D1Database, deps: VisitsDeps, row: NotificationRow, now: number, loaded?: Loaded): Promise<Outcome> {
+  const { settings, booking } = loaded ?? await settingsAndBooking(db, row.kind === "weekly-summary" ? null : row.booking_id, now);
   if (settings.discord_enabled !== 1 || !settings.discord_channel_id) return { status: "skipped", note: "Guest Visits Discord messages are off" };
   let content: string;
   if (row.kind === "weekly-summary") {
@@ -197,7 +219,6 @@ async function deliverDiscord(db: D1Database, deps: VisitsDeps, row: Notificatio
     if (summaryDisposition(payload, now) === "skip") return { status: "skipped", note: "The next summary was due before this one could be sent" };
     content = formatWeeklySummary(deps.civil, await deps.timeZone(), { reportDate: row.summary_date, nextReportDate: payload.nextReportDate, visits: await summaryVisits(db, payload.reportMs, payload.nextReportMs) });
   } else {
-    const booking = await messageBooking(db, row.booking_id);
     const gone = superseded(row.kind, booking);
     if (gone || !booking) return { status: "skipped", note: gone ?? "This visit no longer exists" };
     const message = await details(deps, booking, settings.host_name);
@@ -266,16 +287,23 @@ type DeliverOptions = {
   readonly outreach?: VisitsOutreachClient;
   /** Nothing retries this row later (Record in Outreach without a grant), so a failure is final. */
   readonly final?: boolean;
+  /** The settings and booking, already read with the claim. */
+  readonly loaded?: Loaded;
 };
 
 async function deliver(db: D1Database, deps: VisitsDeps, row: NotificationRow, now: number, options: DeliverOptions = {}): Promise<{ readonly status: Finished; readonly outcome: Outcome } | null> {
   const lease = await claim(db, row.id, now);
   if (!lease) return null;
+  return deliverClaimed(db, deps, row, lease, now, options);
+}
+
+/** Send, record or skip a row this sender holds the lease on, and finish it. */
+async function deliverClaimed(db: D1Database, deps: VisitsDeps, row: NotificationRow, lease: string, now: number, options: DeliverOptions = {}): Promise<{ readonly status: Finished; readonly outcome: Outcome }> {
   let outcome: Outcome;
   try {
-    outcome = row.channel === "email" ? await deliverEmail(db, deps, row, now)
-      : row.channel === "discord" ? await deliverDiscord(db, deps, row, now)
-        : options.outreach ? await recordInOutreach(db, deps, options.outreach, row.booking_id, now)
+    outcome = row.channel === "email" ? await deliverEmail(db, deps, row, now, options.loaded)
+      : row.channel === "discord" ? await deliverDiscord(db, deps, row, now, options.loaded)
+        : options.outreach ? await recordInOutreach(db, deps, options.outreach, row.booking_id, now, options.loaded?.booking ?? undefined)
           : { status: "retry", error: "Outreach is unavailable" };
   } catch (error) {
     outcome = { status: "retry", error: errorText(error) };
@@ -309,10 +337,14 @@ export async function deliverNow(db: D1Database, deps: VisitsDeps, ids: readonly
   }
 }
 
-/** Queue this week's summary when its report time has passed, once per report date. */
-export async function scheduleWeeklySummary(db: D1Database, deps: VisitsDeps, discordReady: boolean, now: number): Promise<SummaryDecision> {
+/**
+ * Queue this week's summary when its report time has passed, once per report date. `discordReady` may be a check, which
+ * then runs only when the settings have the summary on.
+ */
+export async function scheduleWeeklySummary(db: D1Database, deps: VisitsDeps, discordReady: boolean | (() => Promise<boolean>), now: number): Promise<SummaryDecision> {
   const settings = await readSettings(db, now);
-  if (!discordReady || settings.discord_enabled !== 1 || !settings.discord_channel_id || settings.weekly_summary_enabled !== 1) return { action: "off" };
+  if (settings.discord_enabled !== 1 || !settings.discord_channel_id || settings.weekly_summary_enabled !== 1) return { action: "off" };
+  if (!(typeof discordReady === "function" ? await discordReady() : discordReady)) return { action: "off" };
   const timeZone = await deps.timeZone();
   const schedule = { weekday: settings.weekly_summary_weekday, time: settings.weekly_summary_time };
   const { current } = reportTimes(deps.civil, timeZone, schedule, now);
@@ -351,11 +383,7 @@ const supersedeStoppedOutreachSql = `UPDATE visits_notifications SET status='ski
  */
 export async function processVisitsNotifications(db: D1Database, deps: VisitsDeps, limit = notificationsPerPass): Promise<NotificationPass> {
   const now = deps.now();
-  const [, recover] = await db.batch([
-    db.prepare(supersedeStoppedOutreachSql).bind(iso(now), installationId, now, now),
-    db.prepare(recoverExpiredLeasesSql).bind(iso(now), installationId, now),
-  ]);
-  const recovered = recover?.meta?.changes ?? 0;
+  const recovered = await recoverStopped(db, now);
   const channels = await readyChannels(deps);
   const summary = await scheduleWeeklySummary(db, deps, channels.includes("discord"), now);
   const outreach = await outreachAccess(db, deps, now, { checked: true });
@@ -369,6 +397,21 @@ export async function processVisitsNotifications(db: D1Database, deps: VisitsDep
       if (result) counts[result.status] += 1;
     }
   }
+  await purgeExpired(db, deps, now);
+  return { recovered, ...counts, summary: summary.action, outreachGranted: outreach.granted };
+}
+
+/** Take back rows whose sender stopped (one D1 batch). Returns how many went back to the queue. */
+async function recoverStopped(db: D1Database, now: number): Promise<number> {
+  const [, recover] = await db.batch([
+    db.prepare(supersedeStoppedOutreachSql).bind(iso(now), installationId, now, now),
+    db.prepare(recoverExpiredLeasesSql).bind(iso(now), installationId, now),
+  ]);
+  return recover?.meta?.changes ?? 0;
+}
+
+/** Forget old daily email counts, expired or long-revoked manage links and old guest submission keys (one D1 batch). */
+async function purgeExpired(db: D1Database, deps: VisitsDeps, now: number): Promise<void> {
   const timeZone = await deps.timeZone();
   const today = localMoment(deps.civil, timeZone, now).date;
   await db.batch([
@@ -376,7 +419,188 @@ export async function processVisitsNotifications(db: D1Database, deps: VisitsDep
     db.prepare("DELETE FROM visits_manage_tokens WHERE installation_id=? AND (expires_ms<=? OR revoked_ms<=?)").bind(installationId, now, now - revokedTokenRetentionMs),
     db.prepare("DELETE FROM visits_public_submission_keys WHERE installation_id=? AND created_ms<?").bind(installationId, now - submissionKeyRetentionMs),
   ]);
-  return { recovered, ...counts, summary: summary.action, outreachGranted: outreach.granted };
+}
+
+/**
+ * The scheduler slice the job runs in: module SDK 1.6.0's `ModuleJobScheduler`, declared here so the plugin still builds
+ * and runs against Cores with an older SDK, which pass none.
+ */
+export type VisitsJobScheduler = { readonly steps: boolean; readonly cursor?: string };
+
+/**
+ * Notifications one round of steps sends at most, one per slice, before it purges and waits for the next round (five
+ * minutes later). Rows left over stay pending. It keeps a queue that refills as fast as it drains from holding the
+ * scheduler's continuation slices.
+ */
+export const notificationsPerRound = 20;
+
+type StepChannel = NotificationChannel;
+const channelLetters: Readonly<Record<StepChannel, string>> = { email: "e", discord: "d", outreach: "o" };
+const letterChannels: Readonly<Record<string, StepChannel>> = { e: "email", d: "discord", o: "outreach" };
+
+/**
+ * Where a round of steps continues, as the scheduler's cursor (at most 64 characters):
+ * - none, or anything unreadable: `recover`, the first step;
+ * - `deliver`: find which channels have due rows and which of those are ready (no provider request);
+ * - `send:<sent>:<channels>:<g|->`: send the next due row on those channels (`e`, `d`, `o`), `sent` so far this round,
+ *   `g` once this round has refreshed the Outreach grant;
+ * - `purge:<g|->`: forget expired rows, and refresh the Outreach grant unless this round already did.
+ */
+export type NotificationCursor =
+  | { readonly step: "recover" }
+  | { readonly step: "deliver" }
+  | { readonly step: "send"; readonly sent: number; readonly channels: readonly StepChannel[]; readonly grantChecked: boolean }
+  | { readonly step: "purge"; readonly grantChecked: boolean };
+
+export function formatNotificationCursor(cursor: NotificationCursor): string {
+  if (cursor.step === "send") return `send:${cursor.sent}:${cursor.channels.map((channel) => channelLetters[channel]).join("")}:${cursor.grantChecked ? "g" : "-"}`;
+  if (cursor.step === "purge") return `purge:${cursor.grantChecked ? "g" : "-"}`;
+  return cursor.step;
+}
+
+export function parseNotificationCursor(cursor: string | undefined): NotificationCursor {
+  if (cursor === "deliver") return { step: "deliver" };
+  const purge = /^purge:([g-])$/.exec(cursor ?? "");
+  if (purge) return { step: "purge", grantChecked: purge[1] === "g" };
+  const send = /^send:(\d{1,3}):([edo]{1,3}):([g-])$/.exec(cursor ?? "");
+  if (send) {
+    const channels = [...new Set([...send[2]!].map((letter) => letterChannels[letter]!))];
+    const sent = Number(send[1]);
+    const grantChecked = send[3] === "g";
+    return sent < notificationsPerRound ? { step: "send", sent, channels, grantChecked } : { step: "purge", grantChecked };
+  }
+  return { step: "recover" };
+}
+
+/** What one step of the job did, and where the next continues. Counts are this slice's own. */
+export type NotificationStep = {
+  readonly step: NotificationCursor["step"];
+  /** Core runs the job again within about a second, with `cursor`. */
+  readonly more: boolean;
+  readonly cursor?: string;
+  readonly recovered: number; readonly delivered: number; readonly pending: number; readonly failed: number; readonly skipped: number;
+  readonly summary?: SummaryDecision["action"];
+  /** Set by the step that looked the grant up. */
+  readonly outreachGranted?: boolean;
+};
+
+const emptyCounts = { recovered: 0, delivered: 0, pending: 0, failed: 0, skipped: 0 };
+const continueAt = (cursor: NotificationCursor) => ({ more: true, cursor: formatNotificationCursor(cursor) });
+
+/** Pending rows due now, by channel: one indexed read, so a round with nothing due checks no provider. */
+async function dueChannels(db: D1Database, now: number): Promise<Set<StepChannel>> {
+  const due = await rows<{ channel: StepChannel }>(db.prepare("SELECT DISTINCT channel FROM visits_notifications WHERE installation_id=? AND status='pending' AND next_attempt_ms<=?").bind(installationId, now));
+  return new Set(due.map((row) => row.channel));
+}
+
+/**
+ * Take the lease on the oldest due row on these channels and read it, in one statement. `attempts` is returned as it was
+ * before this claim, as `finish` expects. Binds lease token, lease expiry, updated_at, installation ID twice, now and the
+ * channels as JSON.
+ */
+const claimNextNotificationSql = `UPDATE visits_notifications SET status='sending',lease_token=?,lease_expires_ms=?,attempts=attempts+1,next_attempt_ms=NULL,updated_at=?
+  WHERE installation_id=? AND status='pending' AND id=(SELECT id FROM visits_notifications WHERE installation_id=? AND status='pending' AND next_attempt_ms<=? AND channel IN (SELECT value FROM json_each(?)) ORDER BY next_attempt_ms,id LIMIT 1)
+  RETURNING id,channel,kind,booking_id,summary_date,payload_json,attempts-1 AS attempts`;
+
+/**
+ * Claim the next row and read the settings and the row's booking (none for the weekly summary) in one D1 batch, which
+ * runs its statements in order: the booking is found through the lease just taken.
+ */
+async function claimNext(db: D1Database, channels: readonly StepChannel[], now: number): Promise<{ readonly row: NotificationRow; readonly lease: string; readonly loaded: Loaded } | null> {
+  const lease = crypto.randomUUID();
+  const [claimed, settings, booking] = await db.batch([
+    db.prepare(claimNextNotificationSql).bind(lease, now + notificationLeaseMs, iso(now), installationId, installationId, now, JSON.stringify(channels)),
+    settingsStatement(db),
+    db.prepare(`${messageBookingSql} AND b.id=(SELECT n.booking_id FROM visits_notifications n WHERE n.installation_id=? AND n.lease_token=? AND n.kind!='weekly-summary')`).bind(installationId, installationId, lease),
+  ]);
+  const row = claimed?.results?.[0] as NotificationRow | undefined;
+  if (!row) return null;
+  return { row, lease, loaded: { settings: (settings?.results?.[0] as SettingsRow | undefined) ?? await readSettings(db, now), booking: (booking?.results?.[0] as MessageBooking | undefined) ?? null } };
+}
+
+/** Whether an Outreach record's last step found no supported team, so the next creates it (ensure-team). */
+function ensureTeamNext(row: NotificationRow): boolean {
+  try { return (JSON.parse(row.payload_json) as { ensureTeam?: unknown } | null)?.ensureTeam === true; } catch { return false; }
+}
+
+/**
+ * After a send slice did one step of linking an Outreach record's team: the row waits again, due at once and without
+ * counting the attempt, for the next slice to continue. `ensureTeam` notes that Outreach has no such team yet; linking
+ * clears it. A newer record of the same visit waiting meanwhile replaces this one, as in finish.
+ */
+async function requeueLinking(db: D1Database, row: NotificationRow, lease: string, now: number, ensureTeam: boolean): Promise<Finished> {
+  const requeued = await db.prepare(`UPDATE visits_notifications SET status=CASE WHEN ${waitingOutreachSibling} THEN 'skipped' ELSE 'pending' END,
+    attempts=max(attempts-1,0),next_attempt_ms=CASE WHEN ${waitingOutreachSibling} THEN NULL ELSE ? END,last_error=CASE WHEN ${waitingOutreachSibling} THEN ? ELSE last_error END,
+    payload_json=CASE WHEN ? THEN json_set(payload_json,'$.ensureTeam',json('true')) ELSE json_remove(payload_json,'$.ensureTeam') END,
+    lease_token=NULL,lease_expires_ms=NULL,updated_at=? WHERE installation_id=? AND id=? AND status='sending' AND lease_token=? RETURNING status`)
+    .bind(now, supersededOutreachNote, ensureTeam ? 1 : 0, iso(now), installationId, row.id, lease).first<{ status: Finished }>();
+  return requeued?.status ?? "pending";
+}
+
+/** The last step: purge, and refresh the stored Outreach grant (writing only a change) unless this round already did. */
+async function purgeStep(db: D1Database, deps: VisitsDeps, now: number, grantChecked: boolean): Promise<NotificationStep> {
+  await purgeExpired(db, deps, now);
+  const outreachGranted = grantChecked ? undefined : (await outreachAccess(db, deps, now)).granted;
+  return { step: "purge", more: false, ...emptyCounts, ...(outreachGranted === undefined ? {} : { outreachGranted }) };
+}
+
+/**
+ * One step of the visits.notifications job, for a Core whose scheduler runs it in slices (module SDK 1.6.0). Each slice
+ * must fit the Workers Free plan's 10 ms CPU alongside Core's own reads, and on Cloudflare that CPU is mostly per call
+ * (about 0.45 ms per D1 query and 1.5 ms per provider request), so a round is split:
+ * 1. `recover`: take back rows whose sender stopped, and queue the weekly summary when due.
+ * 2. `deliver`: find the channels with due rows and check only those providers (and Outreach's grant only when an
+ *    Outreach record is due). Nothing due, or nothing ready, goes straight on to the purge in the same slice.
+ * 3. `send`, once per notification: claim and send one row, so a slice makes at most one provider request or Outreach
+ *    operation. An Outreach record whose team has no link yet first takes a slice to find the team in Outreach, and one
+ *    more to create it when Outreach has none. After `notificationsPerRound` slices, or when no row is left, it purges.
+ * 4. `purge`: forget expired rows and refresh the stored Outreach grant, writing only a change.
+ */
+export async function processVisitsNotificationStep(db: D1Database, deps: VisitsDeps, cursorText: string | undefined): Promise<NotificationStep> {
+  const now = deps.now();
+  const cursor = parseNotificationCursor(cursorText);
+  if (cursor.step === "recover") {
+    const recovered = await recoverStopped(db, now);
+    const summary = await scheduleWeeklySummary(db, deps, () => deps.discord.ready().catch(() => false), now);
+    return { step: "recover", ...continueAt({ step: "deliver" }), ...emptyCounts, recovered, summary: summary.action };
+  }
+  if (cursor.step === "deliver") {
+    const due = await dueChannels(db, now);
+    const [email, discord] = await Promise.all([
+      due.has("email") ? deps.email.ready().catch(() => false) : false,
+      due.has("discord") ? deps.discord.ready().catch(() => false) : false,
+    ]);
+    const outreach = due.has("outreach") ? await outreachAccess(db, deps, now) : undefined;
+    const channels: StepChannel[] = [...(email ? ["email" as const] : []), ...(discord ? ["discord" as const] : []), ...(outreach?.client && outreach.granted ? ["outreach" as const] : [])];
+    const grantChecked = outreach !== undefined;
+    if (!channels.length) return { ...await purgeStep(db, deps, now, grantChecked), step: "deliver", ...(outreach ? { outreachGranted: outreach.granted } : {}) };
+    return { step: "deliver", ...continueAt({ step: "send", sent: 0, channels, grantChecked }), ...emptyCounts, ...(outreach ? { outreachGranted: outreach.granted } : {}) };
+  }
+  if (cursor.step === "send") {
+    const claimed = await claimNext(db, cursor.channels, now);
+    if (!claimed) return { ...await purgeStep(db, deps, now, cursor.grantChecked), step: "send" };
+    const counts = { ...emptyCounts };
+    const { row, lease } = claimed;
+    const outreachClient = row.channel === "outreach" ? await deps.outreach.client() : undefined;
+    // A visit whose team has no Outreach link yet is linked first, one Outreach operation per slice, then recorded.
+    const linking = outreachClient ? await linkOutreachTeamStep(db, deps, outreachClient, row.booking_id, now, { ensureTeam: ensureTeamNext(row), loaded: claimed.loaded.booking ?? undefined }) : null;
+    const status = linking === "linked" || linking === "not-found" ? await requeueLinking(db, row, lease, now, linking === "not-found")
+      : linking ? await finish(db, row, lease, linking, now)
+        : (await deliverClaimed(db, deps, row, lease, now, { outreach: outreachClient, loaded: claimed.loaded })).status;
+    counts[status] += 1;
+    const sent = cursor.sent + 1;
+    return { step: "send", ...continueAt(sent < notificationsPerRound ? { ...cursor, sent } : { step: "purge", grantChecked: cursor.grantChecked }), ...counts };
+  }
+  return purgeStep(db, deps, now, cursor.grantChecked);
+}
+
+/**
+ * The visits.notifications job as Core calls it. With scheduler steps (module SDK 1.6.0 on the Durable Object
+ * scheduler) it does one step per slice; otherwise (the cron fallback, or a Core before SDK 1.6.0) one full pass of up
+ * to `notificationsPerPass` notifications, as before.
+ */
+export async function runVisitsNotificationsJob(db: D1Database, deps: VisitsDeps, scheduler: VisitsJobScheduler | undefined): Promise<NotificationPass | NotificationStep> {
+  return scheduler?.steps === true ? processVisitsNotificationStep(db, deps, scheduler.cursor) : processVisitsNotifications(db, deps);
 }
 
 /** One visit's result of Record in Outreach, before the route adds the booking ID. */

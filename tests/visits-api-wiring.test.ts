@@ -75,6 +75,14 @@ test("routes, the job and the report run through Core's context with the install
   assert.equal((await api.routes!["/module-setup/visits"]!(context(db, "GET", "/module-setup/visits/status") as never))!.status, 200);
   const pass = await api.jobs!["visits.notifications"]!({ db: db as never, env: {}, services: context(db, "GET", "/").services as never }) as { summary: string };
   assert.equal(pass.summary, "off");
+  assert.equal("more" in pass, false, "without scheduler steps (a Core before SDK 1.6.0, or the cron fallback) the job does a full pass");
+  // Module SDK 1.6.0: with scheduler steps the job does one step and names the next as Core's cursor.
+  const job = (scheduler: { steps: boolean; cursor?: string }) => api.jobs!["visits.notifications"]!({ db: db as never, env: {}, services: context(db, "GET", "/").services as never, scheduler } as never) as Promise<{ step: string; more: boolean; cursor?: string }>;
+  assert.deepEqual(await job({ steps: false }).then((result) => "more" in result), false);
+  const first = await job({ steps: true });
+  assert.deepEqual([first.step, first.more, first.cursor], ["recover", true, "deliver"]);
+  const second = await job({ steps: true, cursor: first.cursor! });
+  assert.deepEqual([second.step, second.more, second.cursor], ["deliver", false, undefined], "nothing is due, so the deliver step purges and the round ends");
   db.exec(`INSERT INTO visits_teams(installation_id,id,number,name,program,created_at,updated_at) VALUES('primary','team-1','99921','Test Team Alpha','FRC','x','x');
     INSERT INTO visits_bookings(installation_id,id,window_id,team_id,contact_name,contact_email,arrival_ms,departure_ms,headcount,created_at,updated_at)
     SELECT 'primary','booking-1',id,'team-1','Pat','pat@example.org',start_ms,start_ms+3600000,4,'x','x' FROM visits_windows ORDER BY start_ms LIMIT 1;`);

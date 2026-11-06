@@ -8,7 +8,7 @@ import {
   defineApiModule, filterAndSortReportRows, installationTimeZone, reportRow,
   type CoreModuleServices, type D1Database, type NormalizedReportDefinition, type ReportProjectionContext,
 } from "@lancerlogin/module-sdk/api";
-import { processVisitsNotifications } from "./api/visits-delivery.ts";
+import { runVisitsNotificationsJob, type VisitsJobScheduler } from "./api/visits-delivery.ts";
 import { visitReportLabel, visitReportRecords, visitReportValues } from "./api/visits-reports.ts";
 import { visitsAdminRoute, visitsPublicRoute, visitsSetupRoute } from "./api/visits-routes.ts";
 import { installationId, type VisitsDeps, type VisitsOutreachAccess, type VisitsOutreachClient, type VisitsRouteContext } from "./api/visits-runtime.ts";
@@ -70,8 +70,12 @@ const api = defineApiModule({
   privateResponseRoutes: ["/public/visits"],
   setup: { predicates: visitsSetupPredicates, stepValid: visitsSetupStepValid },
   // Manage links in queued emails point at the dashboard origin recorded when the email was queued.
-  // Jobs run without a signed-in user, so Outreach is reachable only through an Admin's grant.
-  jobs: { "visits.notifications": ({ db, services }) => processVisitsNotifications(db, deps(db, services, undefined, true)) },
+  // Jobs run without a signed-in user, so Outreach is reachable only through an Admin's grant. From module SDK 1.6.0 the
+  // context carries `scheduler`, and with `scheduler.steps` the job does one step per slice; older Cores pass none, and
+  // the job then does a full pass. Read structurally, so this builds against SDKs before 1.6.0 too.
+  jobs: {
+    "visits.notifications": (context) => runVisitsNotificationsJob(context.db, deps(context.db, context.services, undefined, true), (context as { readonly scheduler?: VisitsJobScheduler }).scheduler),
+  },
   reports: { [visitReportDatasetId]: projectVisitBookings },
   cleanup: { steps: visitsCleanupSteps, blocker: { sql: visitsCleanupBlockerSql, bindings: (installation) => [installation] } },
   // Discord off and the weekly summary on Monday 12:00, created once; settings kept through an earlier deletion stay.
