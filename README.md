@@ -78,7 +78,7 @@ When a guest enters a team number, Guest Visits looks it up in FIRST's FRC, FTC,
 
 | Plugin | LancerLogin Core | Module SDK | Module contract |
 | --- | --- | --- | --- |
-| 0.4.x | `>=2.1.0-beta.4 <3.0.0`, with module SDK 1.2.0 (the first Core with `lancerlogin.upgradeRequiresMigrations`) | `^1.2.0` | 1 |
+| 0.4.x, 0.5.x | `>=2.1.0-beta.4 <3.0.0`, with module SDK 1.2.0 (the first Core with `lancerlogin.upgradeRequiresMigrations`) | `^1.2.0` | 1 |
 | 0.3.x | `>=2.1.0-beta.3 <3.0.0`, with module SDK 1.2.0 (the first Core with `services.first`) | `^1.2.0` | 1 |
 | 0.1.x, 0.2.x | `>=2.0.0-beta.15 <3.0.0` (Modular 2.0.0-beta.15, the first Core with module SDK 1.1.0, and later 2.x releases) | `^1.1.0` | 1 |
 
