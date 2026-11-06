@@ -4,6 +4,7 @@ Every stable or beta release tag has a matching `vX.Y.Z.md` or `vX.Y.Z-beta.N.md
 
 List each release below as `- [vX.Y.Z](vX.Y.Z.md) - one-line summary`.
 
+- [v0.5.0](v0.5.0.md) - Failed-message banners that say why, with Retry and Dismiss, and notifications that fit the Workers Free plan's CPU
 - [v0.4.0](v0.4.0.md) - Removes the old Guest Visits FIRST credentials; install v0.3.0 first and use LancerLogin 2.1.0-beta.4 or later
 - [v0.3.0](v0.3.0.md) - Team lookup on the shared FIRST connection in Settings > Integrations
 - [v0.2.1](v0.2.1.md) - Add availability from a picked day, optional headcount and whole-window booking defaults
