@@ -84,6 +84,8 @@ When a guest enters a team number, Guest Visits looks it up in FIRST's FRC, FTC,
 
 The supported Core range is the `lancerlogin.core` field in `package.json`, and the module SDK peer range declares the SDK features Guest Visits needs. Composition refuses the plugin for a Core outside that range or with an older SDK, before an installation build or web update starts. React and `@lancerlogin/module-sdk` are peer dependencies provided by Core. Recording in Outreach also needs an Outreach release with the `hour-tracking.team-support` interface.
 
+On a Core with module SDK 1.6.0, whose scheduler can run a job in steps (`context.scheduler.steps`), the `visits.notifications` job does one small step per scheduler slice so each fits the Workers Free plan's 10 ms CPU: take back stopped sends and queue the weekly summary, check only the providers with due messages, send one message per slice (up to 20 a round), then forget expired rows. On older Cores, and on Core's cron fallback, it does a full pass of up to five messages as before, so the module SDK peer range stays `^1.2.0`.
+
 ## Repository layout
 
 | Path | Purpose |

@@ -15,9 +15,12 @@ import { installationId, iso, objectBody, ok, onlyFields, revisionOf, stale, Vis
 
 const settingsColumns = "host_name,intro_text,reply_to,test_email_sent_at,discord_enabled,discord_channel_id,weekly_summary_enabled,weekly_summary_weekday,weekly_summary_time,weekly_summary_since_ms,headcount_required,revision";
 
+/** A statement reading the settings row, for a batch with other reads. Use readSettings when the row may be missing. */
+export const settingsStatement = (db: D1Database) => db.prepare(`SELECT ${settingsColumns} FROM visits_settings WHERE installation_id=?`).bind(installationId);
+
 /** The settings row, created with its defaults if first enablement somehow left none. */
 export async function readSettings(db: D1Database, now: number): Promise<SettingsRow> {
-  const read = () => db.prepare(`SELECT ${settingsColumns} FROM visits_settings WHERE installation_id=?`).bind(installationId).first<SettingsRow>();
+  const read = () => settingsStatement(db).first<SettingsRow>();
   const row = await read();
   if (row) return row;
   await db.prepare(defaultSettingsSql).bind(installationId, now, iso(now)).run();

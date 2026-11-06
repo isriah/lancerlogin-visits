@@ -88,7 +88,8 @@ export type OutreachOutcome =
   | { readonly status: "skipped"; readonly note: string }
   | { readonly status: "retry"; readonly error: string; readonly permanent?: boolean };
 
-type OutreachBooking = Pick<BookingRow, "id" | "status" | "removed" | "arrival_ms" | "team_id" | "attention" | "attention_reason"> & {
+/** A visit as an Outreach record reads it. */
+export type OutreachBooking = Pick<BookingRow, "id" | "status" | "removed" | "arrival_ms" | "team_id" | "attention" | "attention_reason"> & {
   number: string; name: string; program: VisitProgram; outreach_team_id: string | null;
 };
 
@@ -97,20 +98,61 @@ const unreadable = (operation: string) => new Error(`Outreach answered ${operati
 
 /** The supported team for a guest team: the first active one with its number and program, else a new one. Stores the link. */
 async function linkTeam(db: D1Database, client: VisitsOutreachClient, booking: OutreachBooking, program: OutreachProgram, now: number): Promise<string> {
-  let teamId = firstActiveTeam(await client.call("find-teams", { number: booking.number, program }));
-  if (teamId === undefined) throw unreadable("find-teams");
-  if (teamId === null) {
-    teamId = ensuredTeam(await client.call("ensure-team", { number: booking.number, name: booking.name, program }));
-    if (!teamId) throw unreadable("ensure-team");
-  }
-  await db.prepare("UPDATE visits_teams SET outreach_team_id=?,updated_at=? WHERE installation_id=? AND id=? AND program!='Other'").bind(teamId, iso(now), installationId, booking.team_id).run();
+  const teamId = await findTeam(client, booking, program) ?? await ensureTeam(client, booking, program);
+  await storeTeamLink(db, booking, teamId, now);
   return teamId;
+}
+
+/** The first active supported team with the visit's number and program, or null when Outreach has none. */
+async function findTeam(client: VisitsOutreachClient, booking: OutreachBooking, program: OutreachProgram): Promise<string | null> {
+  const teamId = firstActiveTeam(await client.call("find-teams", { number: booking.number, program }));
+  if (teamId === undefined) throw unreadable("find-teams");
+  return teamId;
+}
+
+async function ensureTeam(client: VisitsOutreachClient, booking: OutreachBooking, program: OutreachProgram): Promise<string> {
+  const teamId = ensuredTeam(await client.call("ensure-team", { number: booking.number, name: booking.name, program }));
+  if (!teamId) throw unreadable("ensure-team");
+  return teamId;
+}
+
+async function storeTeamLink(db: D1Database, booking: OutreachBooking, teamId: string, now: number) {
+  await db.prepare("UPDATE visits_teams SET outreach_team_id=?,updated_at=? WHERE installation_id=? AND id=? AND program!='Other'").bind(teamId, iso(now), installationId, booking.team_id).run();
 }
 
 async function ensureActivity(client: VisitsOutreachClient, teamId: string, serviceDate: string) {
   const activity = ensuredActivity(await client.call("ensure-team-support-activity", { teamId, serviceDate }));
   if (!activity) throw unreadable("ensure-team-support-activity");
   return activity;
+}
+
+async function outreachBooking(db: D1Database, bookingId: string | null): Promise<OutreachBooking | null> {
+  if (!bookingId) return null;
+  return db.prepare(`SELECT b.id,b.status,b.removed,b.arrival_ms,b.team_id,b.attention,b.attention_reason,t.number,t.name,t.program,t.outreach_team_id
+    FROM visits_bookings b JOIN visits_teams t ON t.installation_id=b.installation_id AND t.id=b.team_id WHERE b.installation_id=? AND b.id=?`).bind(installationId, bookingId).first<OutreachBooking>();
+}
+
+/**
+ * For the job's scheduler steps, which keep each slice to one Outreach operation: when a visit to be recorded has a team
+ * with no Outreach link yet, do one step of linking it. `find-teams` answers `linked` when Outreach has the team, or
+ * `not-found`; with `ensureTeam` (after `not-found`) `ensure-team` creates it and answers `linked`. The record itself
+ * (ensure-team-support-activity) then follows in a later slice. A failed operation answers its outcome, as
+ * recordInOutreach would. Anything else (already linked, or a visit that is not recorded) answers null, and
+ * recordInOutreach does the rest. `loaded` is the visit when the caller already read it.
+ */
+export async function linkOutreachTeamStep(db: D1Database, deps: VisitsDeps, client: VisitsOutreachClient, bookingId: string | null, now: number, options: { readonly ensureTeam: boolean; readonly loaded?: OutreachBooking }): Promise<"linked" | "not-found" | OutreachOutcome | null> {
+  const booking = options.loaded ?? await outreachBooking(db, bookingId);
+  const program = booking ? outreachProgram(booking.program) : null;
+  if (!booking || booking.removed === 1 || booking.status !== "booked" || !program || booking.outreach_team_id) return null;
+  try {
+    const teamId = options.ensureTeam ? await ensureTeam(client, booking, program) : await findTeam(client, booking, program);
+    if (!teamId) return "not-found";
+    await storeTeamLink(db, booking, teamId, now);
+    return "linked";
+  } catch (error) {
+    const status = deps.outreach.providerStatus(error);
+    return { status: "retry", error: errorText(error), permanent: status !== undefined && status >= 400 && status < 500 && status !== 408 && status !== 429 };
+  }
 }
 
 /**
@@ -120,9 +162,8 @@ async function ensureActivity(client: VisitsOutreachClient, teamId: string, serv
  * is stored only while the visit is still booked on that date with that team; when it changed meanwhile, a newer record
  * follows the change, and an activity this attempt created gets the visit Outreach attention.
  */
-export async function recordInOutreach(db: D1Database, deps: VisitsDeps, client: VisitsOutreachClient, bookingId: string | null, now: number): Promise<OutreachOutcome> {
-  const booking = bookingId ? await db.prepare(`SELECT b.id,b.status,b.removed,b.arrival_ms,b.team_id,b.attention,b.attention_reason,t.number,t.name,t.program,t.outreach_team_id
-    FROM visits_bookings b JOIN visits_teams t ON t.installation_id=b.installation_id AND t.id=b.team_id WHERE b.installation_id=? AND b.id=?`).bind(installationId, bookingId).first<OutreachBooking>() : null;
+export async function recordInOutreach(db: D1Database, deps: VisitsDeps, client: VisitsOutreachClient, bookingId: string | null, now: number, loaded?: OutreachBooking): Promise<OutreachOutcome> {
+  const booking = loaded ?? await outreachBooking(db, bookingId);
   if (!booking) return { status: "skipped", note: "This visit no longer exists" };
   if (booking.removed === 1) return { status: "skipped", note: "This visit was removed" };
   if (booking.status !== "booked") return { status: "skipped", note: "Canceled visits are not recorded in Outreach" };
